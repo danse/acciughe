@@ -23,6 +23,18 @@ product.md:
   A graph is derived and disposable. It is rebuilt from the notes and can
   be deleted at any time without loss.
 
+  The corpus is a branch walked to its depth, excluding hidden files.
+
+**The command now writes into the branch, and what it writes is a hidden
+folder.** So the sentence about a session — outside the branch, because it
+records note content — is tested on its own, apart from the sentence about
+the notes, which is about notes and not about a directory. And the reason
+a graph may sit in a branch at all is that last quote: the walk prunes
+hidden subtrees, so the store is invisible to the recheck whose job is
+noticing that a file changed. That is `corpus.scan`'s property and
+`tests/test_index.py` pins it; here it is the command's own claim, that
+what the reader can see is still only their notes.
+
 The model is a real HTTP server on a real port that replies with a
 recorded reply, as in `test_model.py`. A stubbed `answer_from` would let
 the command be wrong about the model in ways no test here could see.
@@ -30,12 +42,15 @@ the command be wrong about the model in ways no test here could see.
 
 import io
 import json
+import shutil
+import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
 from acciughe.cli import main, sessions_for, store_for
+from acciughe.index import CURRENT_DERIVATION, Index
 from acciughe.session import Session
 
 # What gemma3:270m said when asked about this corpus, recorded verbatim.
@@ -219,42 +234,179 @@ def test_a_question_nothing_in_the_corpus_uses_is_refused(branch, state, model):
 
 # --- The branch is never written to -------------------------------------
 
-def test_asking_writes_nothing_into_the_branch(branch, state, model):
+def test_asking_never_rewrites_a_note(branch, state, model):
     """product.md: "Notes are the source of truth. They are never
     rewritten, moved or interpreted in place."
 
-    Both the graph and the conversation are kept out of it, and the
-    reason is not tidiness: what a session records is note content, and a
-    branch is a directory somebody's notes live in.
+    **The notes, and not the branch.** Asking now puts a graph in the
+    branch, in a hidden folder, and the sentence above is still exactly
+    true: no note is rewritten, moved, or read in place, and the graph is
+    built from the notes rather than the notes from the graph. A
+    "nothing is written into the branch" test would fail on the folder
+    while saying nothing about the notes, so this reads the notes
+    themselves — which is what the sentence is about.
     """
     before = sorted((p.name, p.read_text()) for p in branch.iterdir())
 
     ask(branch, state, model, "what does the pipeline read?")
 
-    assert sorted((p.name, p.read_text()) for p in branch.iterdir()) == before
-    assert not list(branch.glob("**/*.sqlite3"))
-    assert not list(branch.glob("**/*.jsonl"))
+    after = sorted(
+        (p.name, p.read_text()) for p in branch.iterdir() if p.is_file()
+    )
+    assert after == before, (
+        "every note is byte-for-byte what it was, and still at the same "
+        "path in the same branch"
+    )
+    assert not [p for p in branch.iterdir() if p.is_file() and p.suffix != ".md"], (
+        "and the only thing asking adds is the hidden folder holding the "
+        "graph, which is a folder and not a note"
+    )
 
 
-def test_the_graph_and_the_conversations_live_outside_the_branch(
-    branch, state, model
-):
+def test_a_ask_writes_no_session_into_the_branch(branch, state, model):
+    """product.md: "A session writes nothing into the branch, and is kept
+    outside it, since what it records is note content."
+
+    This is the sentence about the session, and it is unqualified — unlike
+    the one about the notes, which says notes rather than branch. So it
+    still holds after the graph moved in: a session quotes the reader's
+    notes back to them, and note content does not sit among the notes.
+    """
     ask(branch, state, model, "what does the pipeline read?")
 
-    store = store_for(branch.resolve(), state)
-    sessions = sessions_for(branch.resolve(), state)
+    assert not list(branch.glob("**/*.jsonl"))
+    assert list(sessions_for(branch.resolve(), state).glob("*.jsonl")), (
+        "and it is in the state directory, where the spec puts it"
+    )
+
+
+def test_a_ask_writes_no_quote_of_a_note_beside_the_notes(branch, state, model):
+    """The store is in the branch and holds every note's text, so the one
+    thing that must not happen is a store the reader would mistake for
+    notes.
+
+    It cannot: the folder is hidden, so it is not in the listing a reader
+    sees, and the walk that would report a file it cannot read never
+    reaches inside it. This asserts both, because they are the two ways
+    the store could become note-shaped from the outside.
+    """
+    ask(branch, state, model, "what does the pipeline read?")
+
+    store = store_for(branch)
     assert store.exists()
-    assert store.is_relative_to(state)
+    assert store.parent.name.startswith("."), (
+        "a folder the reader's own file listing does not show"
+    )
+    assert {p.relative_to(branch).as_posix() for p in branch.rglob("*.md")} == {
+        "compiler.md", "index.md", "garden.md"
+    }, (
+        "and no note-shaped thing under it: every note is where it was, and "
+        "the store is the only thing in the branch that is not a note"
+    )
+
+
+def test_the_graph_lives_in_the_branch_and_the_conversations_do_not(
+    branch, state, model
+):
+    """The graph is in the corpus; the conversations are not, and the spec
+    is what keeps them apart.
+
+    product.md: "A session writes nothing into the branch, and is kept
+    outside it, since what it records is note content." That is still
+    binding and still true: a session quotes the notes back, so it is
+    note content and it stays out. The graph holds note content too — the
+    store keeps every note's text — and it is in the branch anyway, which
+    is a decision this project reversed and `cli.store_for` argues.
+
+    The two are apart, so this is two assertions and not one: the graph
+    under the branch, the sessions under the state directory, neither
+    where the other is.
+    """
+    ask(branch, state, model, "what does the pipeline read?")
+
+    store = store_for(branch)
+    sessions = sessions_for(branch.resolve(), state)
+
+    assert store.exists(), "the graph is in the branch"
+    assert store.is_relative_to(branch.resolve())
+    assert sessions.exists() and list(sessions.iterdir()), "the session is not"
     assert sessions.is_relative_to(state)
-    assert not store.is_relative_to(branch)
-    assert not sessions.is_relative_to(branch)
+    assert not sessions.is_relative_to(branch.resolve())
+
+
+def test_the_store_is_a_hidden_folder_the_corpus_itself_never_walks(branch, state, model):
+    """product.md: the branch is walked "excluding hidden files", and that
+    is the whole reason a store may sit inside one.
+
+    `corpus.scan` prunes hidden subtrees rather than skipping the files
+    inside them, so the store is not merely unread as a note — it is
+    never stat'd by the walk whose job is noticing that a file changed.
+    A store that were a visible file would be a note-shaped thing in the
+    middle of the corpus, and the recheck would compare the branch
+    against itself.
+    """
+    run(["--branch", str(branch), "--state", str(state), "index"])
+
+    assert (branch / ".acciughe").is_dir()
+    assert sorted(
+        p.name for p in branch.iterdir() if not p.name.startswith(".")
+    ) == ["compiler.md", "garden.md", "index.md"], (
+        "and everything the reader can see is still just their notes"
+    )
+
+
+def test_a_corpus_carries_its_graph_when_it_is_moved(tmp_path, state, model):
+    """What putting the store inside the branch buys, stated as behaviour.
+
+    A corpus that is moved, copied to a new machine, or checked out
+    somewhere else arrives with the graph derived from the notes as they
+    were, rather than with nothing and a rebuild. The alternative needed a
+    second place to keep in step, and a second place is a second thing to
+    forget.
+    """
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    (branch / "compiler.md").write_text(
+        "The compiler pipeline reads the notes folder. See [[index]].\n"
+    )
+    (branch / "index.md").write_text("The index is derived and disposable.\n")
+    run(["--branch", str(branch), "--state", str(state), "index"])
+
+    moved = tmp_path / "elsewhere" / "notes"
+    moved.parent.mkdir()
+    shutil.copytree(branch, moved)
+
+    found = Index(branch=moved, store_path=store_for(moved))
+
+    assert found.current() is True, (
+        "the moved corpus's graph still matches the notes it moved with"
+    )
+    assert found.derivation_version() == CURRENT_DERIVATION
+
+
+def _stored_notes(branch):
+    """The note ids in a branch's own store, read past the API.
+
+    Deliberately not `Index.note_ids()`: that is the code under test's
+    own account of itself, and a store holding another branch's notes
+    would report its own contents perfectly. The table is read directly
+    so the assertion is about the file and not about the reader of it.
+    """
+    with sqlite3.connect(store_for(branch)) as conn:
+        return {row[0] for row in conn.execute("SELECT id FROM notes")}
 
 
 def test_two_branches_never_share_a_graph(tmp_path, state, model):
     """The failure this guards is silent and would be about the reader's
     own notes: one store holding two branches' graphs answers a question
     from notes that are not there, and every citation would check out
-    because the notes are real — just not these ones."""
+    because the notes are real — just not these ones.
+
+    It is now structural rather than computed — each corpus has only one
+    store, and it is its own — so this reads the notes out of both stores
+    and checks neither has the other's. Comparing the two paths would
+    pass against a function that returned the same path for both.
+    """
     first = tmp_path / "one"
     second = tmp_path / "two"
     for notes in (first, second):
@@ -268,16 +420,27 @@ def test_two_branches_never_share_a_graph(tmp_path, state, model):
             "The allotment committee moved the water butt to the far end.\n"
         )
 
-    assert store_for(first, state) != store_for(second, state)
+    for notes in (first, second):
+        run(["--branch", str(notes), "--state", str(state), "index"])
+
+    assert store_for(first) != store_for(second)
+    assert _stored_notes(first) == {"compiler.md", "index.md", "garden.md"}
+    assert _stored_notes(second) == {"compiler.md", "index.md", "garden.md"}
 
 
 def test_two_branches_named_the_same_thing_never_share_a_graph(tmp_path, state):
-    """A digest of the path, not of the name: two branches can both be
-    called ``notes``."""
+    """Two branches can both be called ``notes``, and under a digest of
+    the path they needed it. Inside the branch the path *is* the
+    identity, so this is a statement about the shape rather than about
+    a function."""
     first = tmp_path / "one" / "notes"
     second = tmp_path / "two" / "notes"
+    for notes in (first, second):
+        notes.mkdir(parents=True)
 
-    assert store_for(first, state) != store_for(second, state)
+    assert store_for(first) != store_for(second)
+    assert store_for(first).is_relative_to(first)
+    assert store_for(second).is_relative_to(second)
 
 
 # --- Conversations ------------------------------------------------------
@@ -412,6 +575,48 @@ def test_the_graph_command_reads_the_branch_before_it_measures_it(branch, state)
     assert said.startswith("notes: "), "the read is reported, not assumed"
     assert "1 new" in said, "so a reader knows the graph was just rebuilt"
     assert "4 notes," in said, "and the figures are of the branch as it now stands"
+
+
+def test_the_same_corpus_measures_the_same_from_any_state_directory(branch, tmp_path):
+    """`--state` is for conversations now, and this says so by behaviour.
+
+    It used to choose where the graph was written, so two invocations
+    differing only in `--state` measured different files and a reader
+    keeping two state directories could hold two pictures of the same
+    notes. Now the graph is a property of the corpus and the flag cannot
+    move it.
+    """
+    here = tmp_path / "one"
+    there = tmp_path / "two"
+    for state in (here, there):
+        state.mkdir()
+
+    _c, from_here, _e = run(
+        ["--branch", str(branch), "--state", str(here), "graph"]
+    )
+    _c, from_there, _e = run(
+        ["--branch", str(branch), "--state", str(there), "graph"]
+    )
+
+    assert not list(here.glob("**/*.sqlite3")), (
+        "and nothing graph-shaped is written under a state directory"
+    )
+    assert _figures(from_here) == _figures(from_there), (
+        "the same measurements, because there is only one graph to measure. "
+        "The read line above them differs — the first run built the graph "
+        "and the second found it current — and that is the read reporting "
+        "itself rather than the figures disagreeing."
+    )
+
+
+def _figures(out):
+    """The measurements out of a `graph` run, without the read line.
+
+    The read line says what was read, so it legitimately differs between a
+    run that built a graph and one that found it current. What is under it
+    must not differ at all, which is the whole assertion.
+    """
+    return out.getvalue().split("\n", 1)[1]
 
 
 def test_measuring_the_graph_of_a_path_that_is_not_a_branch_says_so(tmp_path, state):

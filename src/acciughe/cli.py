@@ -9,15 +9,22 @@ nothing about arguments, terminals or models; this module is the thin
 part that connects them. That split is what makes the output testable at
 all, since a turn on this hardware is one to two minutes.
 
-Two decisions in here that are not obvious:
+Three decisions in here that are not obvious:
 
-**Nothing is written into the branch.** The index is derived and
-disposable, the sessions record note content, and a branch is somebody's
-notes — so both live under a state directory outside it. The store is
-named after a digest of the branch's resolved path, because one state
-directory holding two branches' graphs would answer a question from the
-wrong notes, and a silent way to be wrong about your own corpus is the
-worst kind.
+**The graph is in the branch; the sessions are not.** A corpus carries
+its own structure, in a hidden folder beside the notes, so a copied or
+moved corpus arrives with the graph built from the notes it moved with.
+The sessions stay outside, because `product.md` puts them there for a
+reason that still stands: they record note content, and note content
+does not sit among the notes. The split is not tidiness — the store
+holds every note's text too, so the reason the spec gives reaches it as
+well, and it is in the branch anyway. `store_for` argues it at length
+and `tests/test_index.py` pins the walk not seeing it.
+
+**One state directory cannot hold two branches' graphs.** This used to be
+the digest in the store's filename. It is now structural rather than
+computed: each corpus has one store, and it is its own, so two branches
+cannot share one without sharing a directory.
 
 **Progress goes to stderr and the answer goes to stdout.** A turn pauses
 for a minute or two, and a reader needs to know the tool is working; but
@@ -50,25 +57,57 @@ DEFAULT_STATE = Path(
     "~/.local/state/acciughe"
 ).expanduser()
 
+# The folder a branch's graph is kept in, inside the branch.
+# DECISION: the graph lives with the corpus, in a hidden folder beside the
+# notes, rather than under --state beside every other corpus's.
+#
+# A graph is derived and disposable, so where it sits costs nothing by
+# itself. What it buys is that a corpus carries its own structure: two
+# branches cannot share a store by accident, because each one has only its
+# own, and a corpus that is copied or moved arrives with the graph built
+# from the notes as they were rather than with nothing.
+#
+# Hidden, and that is load-bearing rather than tidy. product.md: the branch
+# is walked "excluding hidden files", and `corpus.scan` prunes hidden
+# subtrees from the walk rather than skipping the files inside them. So
+# the store is never read as a note and never even stat'd by the walk that
+# would notice it had changed. A folder that were not hidden would be a
+# note-shaped thing in the middle of the corpus, and the next derivation
+# to widen the read would find its own output.
+#
+# What it does cost, and it is a real cost: a corpus kept in a repository
+# needs `.acciughe/` ignored, because the store holds a copy of every
+# note. A branch that cannot be written cannot be indexed at all, which
+# `--state` used to allow. The first is a line in a file the reader
+# already has; the second is raised when it happens rather than worked
+# around, because a graph quietly written somewhere else is a graph the
+# reader does not know they have.
+STORE_FOLDER = ".acciughe"
 
-def store_for(branch: Path, state: Path) -> Path:
+
+def store_for(branch: Path) -> Path:
     """Where the graph for this branch is kept.
 
-    Named after the branch rather than after the branch's name, because
-    two branches can be called ``notes`` and be different directories,
-    and a store shared between them would answer from notes that are not
-    there.
+    Inside the branch, so that a corpus carries its own structure and no
+    two can be answered from one another's notes. The name of the branch
+    is not in it and needs no digest: the path is the branch.
     """
-    digest = hashlib.sha256(str(branch.resolve()).encode()).hexdigest()[:8]
-    return state / "graphs" / f"{branch.name}-{digest}.sqlite3"
+    return Path(branch) / STORE_FOLDER / "graph.sqlite3"
 
 
 def sessions_for(branch: Path, state: Path) -> Path:
     """Where the conversations about this branch are kept.
 
-    Under the same digest, because a session records which notes were
-    read, and a session listed beside a branch it was not about is a
-    session nobody can trust.
+    Outside the branch, and under a digest of its resolved path rather than
+    its name. Outside because they record note content, which
+    `product.md` does not want among the notes. Under a digest because a
+    session records which notes were read, so a session listed beside a
+    branch it was not about is a session nobody can trust — and two
+    branches can both be called ``notes``.
+
+    A digest rather than a path, though the graph beside it needs neither:
+    a state directory is shared by every corpus on the machine, so it
+    cannot put its sessions inside any one of them.
     """
     digest = hashlib.sha256(str(branch.resolve()).encode()).hexdigest()[:8]
     return state / "sessions" / digest
@@ -92,7 +131,7 @@ def _ask(args, out, err) -> int:
 
     result = turn(
         args.question,
-        Index(branch=branch, store_path=store_for(branch, args.state)),
+        Index(branch=branch, store_path=store_for(branch)),
         answer_from=phrasing(
             Ollama(model=args.model, host=args.host).complete
         ),
@@ -115,7 +154,7 @@ def _index(args, out, err) -> int:
         err.write(f"not a branch: {branch}\n")
         return 1
 
-    index = Index(branch=branch, store_path=store_for(branch, args.state))
+    index = Index(branch=branch, store_path=store_for(branch))
     out.write(render_read(index.refresh()) + "\n")
     return 0
 
@@ -139,7 +178,7 @@ def _graph(args, out, err) -> int:
         err.write(f"not a branch: {branch}\n")
         return 1
 
-    index = Index(branch=branch, store_path=store_for(branch, args.state))
+    index = Index(branch=branch, store_path=store_for(branch))
     out.write(
         render_read(index.refresh()) + "\n" + render_metrics(graph_metrics(index)) + "\n"
     )
@@ -204,7 +243,7 @@ def _evaluate(args, out, err) -> int:
         err.write(f"not a branch: {branch}\n")
         return 1
 
-    index = Index(branch=branch, store_path=store_for(branch, args.state))
+    index = Index(branch=branch, store_path=store_for(branch))
     index.refresh()
 
     count = 0
@@ -250,7 +289,10 @@ def parser() -> argparse.ArgumentParser:
         "--state",
         type=Path,
         default=DEFAULT_STATE,
-        help=f"where the graph and conversations are kept (default: {DEFAULT_STATE})",
+        help=(
+            f"where conversations are kept, which is outside the branch "
+            f"because they record note content (default: {DEFAULT_STATE})"
+        ),
     )
     given.add_argument(
         "--host",

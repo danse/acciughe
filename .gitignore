@@ -11,12 +11,16 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# The graph and the conversations. product.md: "A graph is derived and
-# disposable" and "A session writes nothing into the branch, and is kept
-# outside it, since what it records is note content" — so a store is
-# something a branch produces where it is run, never something committed
-# beside the code.
+# A corpus's own graph, when acciughe is run against this repository's
+# notes. The store holds a copy of every note's text, so it must never be
+# committed.
+.acciughe/
+
+# Stray stores and sessions from a state directory pointed here. The graph
+# belongs in the branch now; what is left is a reader who has been running
+# an older acciughe, or a --state of their own inside the tree.
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal
 *.sqlite3-shm
+*.jsonl

@@ -17,16 +17,27 @@ import stat
 
 import pytest
 
+from acciughe.corpus import scan
 from acciughe.index import Index, StaleGraph, CURRENT_DERIVATION, _fingerprint
 from acciughe.relations import CO_OCCURRENCE
 
 
 @pytest.fixture
 def index(tmp_path):
-    """An index over a branch, with its store outside the branch."""
+    """An index over a branch, with its store where a real one keeps it."""
     branch = tmp_path / "notes"
     branch.mkdir()
-    return Index(branch=branch, store_path=tmp_path / "state" / "graph.sqlite3")
+    return Index(branch=branch, store_path=store_in(branch))
+
+
+def store_in(branch):
+    """The store a branch carries, at the location `cli.store_for` puts it.
+
+    Written out here rather than imported so that these tests pin the
+    location itself: a test that got the path from the code would pass
+    whatever the code decided, and the decision is the thing under test.
+    """
+    return branch / ".acciughe" / "graph.sqlite3"
 
 
 def write(branch, rel, text):
@@ -345,24 +356,75 @@ def test_a_stale_derivation_rebuilds_from_the_notes(tmp_path):
     assert new.derivation_version() == CURRENT_DERIVATION + 1
 
 
-def test_the_store_lives_outside_the_branch(tmp_path):
-    """A session writes nothing into the branch; nor does the index.
+def test_the_store_lives_inside_the_branch_and_the_walk_never_sees_it(tmp_path):
+    """A graph sits in a hidden folder in the corpus, and the corpus's own
+    walk cannot see it.
 
-    DECISION: the index is outside the branch for the same reason a
-    session is. The branch holds notes and nothing derived.
+    DECISION: this reverses an earlier one, which kept the store outside
+    the branch for the reason a session does. product.md puts a session
+    out of the branch "since what it records is note content" — and the
+    store *does* record note content, the `text` column holds every note
+    verbatim, so that reason reaches this file too and was the reason for
+    it.
+
+    What changed is what the location is for. Outside the branch, a graph
+    is somewhere the reader has to be told about and cannot see; inside it,
+    in a folder the walk prunes, a corpus carries its own structure and
+    two corpora cannot be answered from each other's notes. That is what
+    the reader asked for, and the spec permits it: "A graph is derived and
+    disposable" constrains what a graph is, not where it may sit.
+
+    The reason it is safe is `product.md`'s own "excluding hidden files" —
+    so this test is the one that says the store is not a note, and it is
+    the assertion that would fail first if the folder were not hidden.
     """
     branch = tmp_path / "notes"
     branch.mkdir()
-    store = tmp_path / "state" / "graph.sqlite3"
     write(branch, "a.txt", "one")
+    write(branch, "b.txt", "two")
 
-    idx = Index(branch=branch, store_path=store)
+    idx = Index(branch=branch, store_path=store_in(branch))
     idx.refresh()
 
-    assert store.exists()
-    assert {p.name for p in branch.iterdir()} == {"a.txt"}, (
-        "the branch must contain notes and nothing this tool derived"
+    assert store_in(branch).exists()
+    assert idx.note_ids() == {"a.txt", "b.txt"}, (
+        "the store is in the branch and the branch is unchanged"
     )
+    assert [entry.path for entry in scan(branch)] == ["a.txt", "b.txt"], (
+        "the store is not a note: the walk prunes the hidden folder rather "
+        "than skipping files inside it, so nothing in .acciughe is read, "
+        "stat'd, or reported as unreadable"
+    )
+
+
+def test_a_graph_in_the_branch_is_deletable_without_cost(tmp_path):
+    """product.md: "A graph is derived and disposable. It is rebuilt from
+    the notes and can be deleted at any time without loss."
+
+    The disposal has to survive the move inside the branch. If the store
+    held anything the notes do not — a decision, a counter, a question
+    asked — deleting it would lose it, and "disposable" would be a claim
+    about a different file than the one now sitting in the corpus.
+    """
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    write(branch, "a.txt", "one")
+    write(branch, "b.txt", "one and two")
+    store = store_in(branch)
+
+    before = Index(branch=branch, store_path=store)
+    before.refresh()
+    edges = before.graph().edges()
+
+    store.unlink()
+
+    after = Index(branch=branch, store_path=store)
+    after.refresh()
+
+    assert after.graph().edges() == edges, (
+        "the same relations, from the same notes, with the store thrown away"
+    )
+    assert after.current() is True
 
 
 def test_a_graph_from_an_index_knows_every_note(index):
