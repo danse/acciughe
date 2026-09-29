@@ -367,6 +367,63 @@ def test_a_read_that_changed_nothing_says_so(branch, state):
     assert "up to date" in out.getvalue()
 
 
+def test_the_graph_command_reports_the_three_measurements_the_spec_names(branch, state):
+    """product.md: "The graph is measured rather than assumed — its
+    density, how much of it is co-occurrence rather than relation, how
+    many notes end up connected to nothing."
+
+    All three were computed by `graph_metrics` and none of them could be
+    seen, which is a spec satisfied in a test and not in a hand. This is
+    the command that closes that, and the gap this file exists to catch:
+    a measurement nothing renders is a measurement nobody has.
+    """
+    code, out, _err = run(
+        ["--branch", str(branch), "--state", str(state), "graph"]
+    )
+
+    said = out.getvalue()
+
+    assert code == 0
+    assert "3 notes," in said
+    assert "relations to a note on average" in said, "its density"
+    assert "co-occurrence" in said, "how much is co-occurrence"
+    assert "stated links" in said, "and how much is stated relation"
+    assert "connect to nothing" in said, "and how many notes reach nothing"
+
+
+def test_the_graph_command_reads_the_branch_before_it_measures_it(branch, state):
+    """The read is above the figures and not suppressed.
+
+    These are measurements *of a graph*. A graph that had drifted from the
+    branch would be measured and reported as though it were this one, and
+    the reader would have no way to tell — the only defence is saying what
+    was read on the same screen, which is also what "reported rather than
+    silent" asks for.
+    """
+    run(["--branch", str(branch), "--state", str(state), "index"])
+    (branch / "newcomer.md").write_text("A note that arrived after the read.")
+
+    _code, out, _err = run(
+        ["--branch", str(branch), "--state", str(state), "graph"]
+    )
+
+    said = out.getvalue()
+
+    assert said.startswith("notes: "), "the read is reported, not assumed"
+    assert "1 new" in said, "so a reader knows the graph was just rebuilt"
+    assert "4 notes," in said, "and the figures are of the branch as it now stands"
+
+
+def test_measuring_the_graph_of_a_path_that_is_not_a_branch_says_so(tmp_path, state):
+    code, out, err = run(
+        ["--branch", str(tmp_path / "nowhere"), "--state", str(state), "graph"]
+    )
+
+    assert code == 1
+    assert "not a branch" in err.getvalue()
+    assert out.getvalue() == ""
+
+
 # --- Measuring the branch -----------------------------------------------
 
 def test_the_evaluate_command_prints_what_a_run_found(questioned, state, model):

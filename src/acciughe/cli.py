@@ -33,13 +33,14 @@ import sys
 from pathlib import Path
 
 from acciughe.agent import turn
-from acciughe.evaluation import Attempt, report
+from acciughe.evaluation import Attempt, graph_metrics, report
 from acciughe.index import Index
 from acciughe.model import DEFAULT_HOST, DEFAULT_MODEL, Ollama, phrasing
 from acciughe.render import (
     read as render_read,
     render,
     render_attempt,
+    render_metrics,
     render_report,
 )
 from acciughe.session import Session
@@ -116,6 +117,32 @@ def _index(args, out, err) -> int:
 
     index = Index(branch=branch, store_path=store_for(branch, args.state))
     out.write(render_read(index.refresh()) + "\n")
+    return 0
+
+
+def _graph(args, out, err) -> int:
+    """The graph's own measurements, on a branch that has just been read.
+
+    product.md: "The graph is measured rather than assumed." The three
+    things it names are computed by `graph_metrics` and nothing rendered
+    them, so a reader could see what had been read and never what it had
+    come to.
+
+    The read is reported above the figures rather than suppressed, and
+    that is not a preamble: the measurements are of a graph, and a graph
+    that did not match the branch would be measuring the wrong one. So
+    the line saying the notes are current is what makes the numbers below
+    it mean what they appear to mean.
+    """
+    branch = args.branch.resolve()
+    if not branch.is_dir():
+        err.write(f"not a branch: {branch}\n")
+        return 1
+
+    index = Index(branch=branch, store_path=store_for(branch, args.state))
+    out.write(
+        render_read(index.refresh()) + "\n" + render_metrics(graph_metrics(index)) + "\n"
+    )
     return 0
 
 
@@ -248,6 +275,9 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("index", help="read the branch and report").set_defaults(
         run=_index
     )
+    commands.add_parser(
+        "graph", help="measure the graph: density, stages, and orphans"
+    ).set_defaults(run=_graph)
     commands.add_parser(
         "sessions", help="list the conversations about this branch"
     ).set_defaults(run=_sessions)

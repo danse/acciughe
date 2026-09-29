@@ -22,7 +22,7 @@ examination that cannot say what it skipped is an assertion.
 from __future__ import annotations
 
 from acciughe.agent import Turn
-from acciughe.evaluation import KEPT, MIN_COMPARISON, Attempt, Report
+from acciughe.evaluation import KEPT, MIN_COMPARISON, Attempt, GraphMetrics, Report
 from acciughe.index import Read
 from acciughe.session import (
     Answer,
@@ -51,6 +51,23 @@ _FORK = {
     Next.ANSWERED: None,
 }
 
+# How many notes that reach nothing are named before the rest are only
+# counted. Enough to see whether the orphans are scattered or one clump,
+# and few enough that a corpus in trouble can still be read. Named rather
+# than hidden either way: the count is always on the line, so a truncated
+# list is a shorter list and not a different claim.
+ORPHANS_SHOWN = 10
+
+# What each derivation stage is called in a sentence. Falling back to the
+# kind itself is deliberate rather than a gap: a stage added to the graph
+# tomorrow would arrive here unnamed, and a line reading "40 similarity" is
+# a line asking the reader what that is, where a line that guessed would be
+# a line quietly calling a new kind the wrong thing.
+_STAGE = {
+    "link": "stated links",
+    "cooccurrence": "co-occurrence",
+}
+
 
 def render(turn: Turn) -> str:
     """A turn, as a reader sees it."""
@@ -68,13 +85,10 @@ def read(report: Read) -> str:
     being something a question had to ask for, but a branch that has
     just changed should be able to show what was read without anybody
     having to invent a question to ask.
-    """
-    """The read, reported rather than silent.
 
-    product.md: "Both happen unasked, and are reported rather than
-    silent." Both is the check and the refresh, so a turn that found
-    nothing to do says that too — a line that costs six words and is the
-    difference between knowing the graph is current and assuming it.
+    Both is the check and the refresh, so a turn that found nothing to do
+    says that too — a line that costs six words and is the difference
+    between knowing the graph is current and assuming it.
     """
     if report.quiet:
         return "notes are up to date"
@@ -266,6 +280,76 @@ def _outcome_of(attempt: Attempt) -> str:
     if isinstance(outcome, Components):
         return "parts, not an answer"
     return f"refused ({outcome.kind.value})"
+
+
+def render_metrics(metrics: GraphMetrics) -> str:
+    """The graph, measured rather than assumed.
+
+    product.md: "The graph is measured rather than assumed — its density,
+    how much of it is co-occurrence rather than relation, how many notes
+    end up connected to nothing." Those three are computed in
+    `evaluation.graph_metrics` and this is where they stop being a number
+    in a test and become something a reader can read. It is the same
+    measurements in the same units, and no threshold is applied here that
+    is not already in the code that produced them.
+
+    **Pairs and edges are both on the line, because the gap between them
+    is a finding and not a detail.** An edge is a *reason* two notes are
+    related; a pair is two notes that are related at all. A co-occurrence
+    edge on a pair you already linked by hand is not extra structure, it
+    is the second stage agreeing with the first — and a reader told only
+    the edge count would read that agreement as a denser corpus. So the
+    count that says how connected the notes are and the counts that say
+    what each stage found are both here, and the difference is stated.
+
+    **Density is printed as the average number of relations a note
+    has**, which is what it is: the mean degree over distinct pairs. Under
+    the word "density" a reader expects a fraction, and mean degree is not
+    one — printed as `0.014` on a three-hundred note corpus it would read
+    as near-empty, where the same figure spoken as "2.7 relations to a
+    note" is a corpus that relates to itself generously.
+
+    **The notes that reach nothing are named, and the rest are counted.**
+    product.md: "an examination says what it left out." A count of
+    orphans is a finding and the names are what a reader can go and look
+    at, but a corpus of three hundred notes can have two hundred orphans
+    and a list that long is not a shape. So a floor's worth are named, the
+    remainder is counted, and the truncation says so rather than letting
+    the list look complete.
+    """
+    lines = [
+        f"{metrics.notes} note{_plural(metrics.notes)}, "
+        f"{metrics.pairs} pair{_plural(metrics.pairs)} of them related"
+    ]
+
+    if metrics.edges > metrics.pairs:
+        repeated = metrics.edges - metrics.pairs
+        lines.append(
+            f"  {metrics.edges} relations in all, {repeated} of them a second "
+            "reason on a pair already related"
+        )
+    elif metrics.edges:
+        lines.append(f"  {metrics.edges} relations in all")
+
+    lines.append(f"  {metrics.density:.1f} relations to a note on average")
+
+    if metrics.by_kind:
+        lines.append("  " + ", ".join(
+            f"{count} {_STAGE.get(kind, kind)}"
+            for kind, count in sorted(metrics.by_kind.items())
+        ))
+
+    lines.append(
+        f"  {metrics.unconnected} note{_plural(metrics.unconnected)} "
+        "connect to nothing"
+    )
+    for note_id in metrics.unconnected_notes[:ORPHANS_SHOWN]:
+        lines.append(f"    {note_id}")
+    if len(metrics.unconnected_notes) > ORPHANS_SHOWN:
+        left = len(metrics.unconnected_notes) - ORPHANS_SHOWN
+        lines.append(f"    and {left} more, which this has not named")
+
+    return "\n".join(lines)
 
 
 def render_report(report: Report) -> str:

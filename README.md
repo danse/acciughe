@@ -32,6 +32,8 @@ Python 3.11+. No runtime dependencies yet.
 | `propose.py` | Questions the graph proposes, lifted from the corpus rather than written |
 | `evaluation.py` | Citation correctness, the question-set rule, the graph metrics, and the report a run is counted into |
 | `trial.py` | Running the evaluation: propose, judge, ask, keep the receipts |
+| `render.py` | Every rendering: a turn, a read, the graph's measurements, a run's report |
+| `cli.py` | The commands, and where a branch's graph and conversations are kept |
 
 The tests are the specification for behaviour. Each names the sentence
 of `product.md` it pins; each decision the spec does not make is marked

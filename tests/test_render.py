@@ -49,12 +49,13 @@ from acciughe.evaluation import (
     Attempt,
     CitationReport,
     Finding,
+    GraphMetrics,
     Verdict,
     report,
 )
 from acciughe.index import Index, Read
 from acciughe.propose import Proposal
-from acciughe.render import render, render_attempt, render_report
+from acciughe.render import ORPHANS_SHOWN, render, render_attempt, render_metrics, render_report
 from acciughe.session import (
     Answer,
     Citation,
@@ -509,6 +510,211 @@ def test_one_note_is_not_reported_as_two():
 
     assert "read 1 note " in shown or "read 1 note\n" in shown
     assert "read 1 notes" not in shown
+
+
+# --- The graph, measured ------------------------------------------------
+
+def _metrics(**over):
+    """A graph shaped like the one `graph_metrics` describes by default:
+    three notes, two of them related by both a link and a co-occurrence."""
+    given = {
+        "notes": 3,
+        "edges": 3,
+        "pairs": 2,
+        "density": 4 / 3,
+        "by_kind": {"link": 2, "cooccurrence": 1},
+        "connected": 2,
+        "unconnected": 1,
+        "unconnected_notes": ["lonely.md"],
+    }
+    return GraphMetrics(**{**given, **over})
+
+
+def test_the_three_measurements_product_md_names_are_all_reported():
+    """product.md: "The graph is measured rather than assumed — its
+    density, how much of it is co-occurrence rather than relation, how
+    many notes end up connected to nothing."
+
+    Three, and the code computes all three and the reader can see none of
+    them, which is a spec satisfied in a test and not in a hand.
+    """
+    shown = render_metrics(_metrics())
+
+    assert "1.3 relations to a note on average" in shown, "its density"
+    assert "1 co-occurrence" in shown, "how much is co-occurrence"
+    assert "2 stated links" in shown, "and how much is stated relation"
+    assert "1 note connect to nothing" in shown, "how many reach nothing"
+
+
+def test_the_read_alongside_the_figures_is_what_makes_them_mean_anything():
+    """A reader who cannot see whether the graph matches the branch cannot
+    read the measurements off it.
+
+    So the command reports the read above the figures rather than
+    suppressing it, and the reason is not tidiness: these are
+    measurements *of a graph*, and a stale graph would be measured and
+    reported as though it were this one.
+    """
+    shown = render_metrics(_metrics())
+
+    assert "of them related" in shown, "the figures are about pairs, not a count"
+    assert "connect to nothing" in shown
+
+
+def test_a_second_reason_on_an_already_related_pair_is_not_another_relation():
+    """The gap between the edge count and the pair count is a finding.
+
+    An edge is a reason two notes are related; a pair is two notes that
+    are related at all. A co-occurrence edge on a pair you already linked
+    by hand is the second stage agreeing with the first — and a reader
+    told only "3 relations" about a three-note corpus would read that as
+    more structure than there is. So both counts are on the line and the
+    difference is said out loud.
+    """
+    shown = render_metrics(_metrics(edges=3, pairs=2))
+
+    assert "3 relations in all" in shown
+    assert "1 of them a second reason on a pair already related" in shown
+
+
+def test_a_graph_where_each_pair_has_exactly_one_reason_says_no_thing_about_gaps():
+    """The sentence is for when there is a gap, and a line that always
+    carried it would be reporting a zero the reader has to interpret."""
+    shown = render_metrics(_metrics(edges=2, pairs=2))
+
+    assert "second reason" not in shown
+    assert "2 relations in all" in shown
+
+
+def test_density_is_spoken_as_relations_rather_than_as_a_fraction():
+    """It is the mean degree over distinct pairs, and "density" is a word
+    that makes a reader expect 0 to 1.
+
+    On a three-hundred note corpus `0.014` reads as a corpus of near
+    strangers, where the same figure as "2.7 relations to a note" is a
+    corpus that relates to itself generously. Printing the number under
+    the word would let the reader's expectation override the measurement.
+    """
+    shown = render_metrics(
+        _metrics(
+            notes=300, pairs=405, edges=405, density=2.7, unconnected=0,
+            unconnected_notes=[],
+        )
+    )
+
+    assert "2.7 relations to a note on average" in shown
+    assert "0.0" not in shown
+    assert "density" not in shown.lower(), (
+        "the word would promise a fraction this is not"
+    )
+
+
+def test_the_notes_that_reach_nothing_are_named():
+    """A count of orphans is a finding. The names are what a reader can go
+    and look at, and a number with nothing behind it cannot be acted on."""
+    shown = render_metrics(
+        _metrics(unconnected=2, unconnected_notes=["a.md", "z.md"])
+    )
+
+    assert "2 notes connect to nothing" in shown
+    assert "    a.md" in shown
+    assert "    z.md" in shown
+
+
+def test_a_corpus_with_more_orphans_than_are_named_says_how_many_it_left_out():
+    """product.md: "an examination says what it left out."
+
+    A corpus of three hundred notes can hold two hundred that reach
+    nothing, and a list that long is not a shape. So the list is bounded
+    and the remainder is counted — bounded, not hidden, because a
+    truncated list that did not say so would be a list the reader took to
+    be the whole set of orphans.
+    """
+    orphans = [f"note{n:03d}.md" for n in range(ORPHANS_SHOWN + 4)]
+    shown = render_metrics(
+        _metrics(notes=40, unconnected=len(orphans), unconnected_notes=orphans)
+    )
+
+    assert f"{ORPHANS_SHOWN} more" not in shown
+    assert "and 4 more, which this has not named" in shown
+    assert orphans[ORPHANS_SHOWN] not in shown, "and the count is of what it left"
+    assert f"{len(orphans)} notes connect to nothing" in shown, (
+        "so the total is on the line regardless of what is named"
+    )
+
+
+def test_a_graph_with_no_edges_says_so_rather_than_printing_nothing():
+    """An empty graph is a real state — a branch of notes that relate to
+    nothing — and it is the one a reader most needs to be told about."""
+    shown = render_metrics(
+        _metrics(
+            notes=2,
+            edges=0,
+            pairs=0,
+            density=0.0,
+            by_kind={},
+            connected=0,
+            unconnected=2,
+            unconnected_notes=["a.md", "b.md"],
+        )
+    )
+
+    assert "2 notes, 0 pairs of them related" in shown
+    assert "0.0 relations to a note on average" in shown
+    assert "connect to nothing" in shown
+    assert shown.endswith("b.md"), "and it does not trail off after nothing"
+
+
+def test_an_empty_branch_measures_rather_than_dividing_by_nothing():
+    shown = render_metrics(
+        _metrics(
+            notes=0,
+            edges=0,
+            pairs=0,
+            density=0.0,
+            by_kind={},
+            connected=0,
+            unconnected=0,
+            unconnected_notes=[],
+        )
+    )
+
+    assert "0 notes" in shown
+    assert "0.0 relations to a note on average" in shown
+
+
+def test_a_stage_the_renderer_has_never_heard_of_is_named_rather_than_guessed_at():
+    """The kind tags are how a stage stays a proxy rather than a relation,
+    and a new one arrives with no glossary entry.
+
+    A line reading "40 similarity" asks the reader a question the tool
+    should have answered; a line that guessed would be calling a stage
+    something it is not, which is the one error the kind-tagging exists
+    to prevent.
+    """
+    shown = render_metrics(_metrics(by_kind={"link": 2, "similarity": 40}))
+
+    assert "40 similarity" in shown
+    assert "co-occurrence" not in shown, "and no stage is claimed that was not run"
+
+
+def test_one_note_is_not_reported_as_two():
+    shown = render_metrics(
+        _metrics(
+            notes=1,
+            edges=0,
+            pairs=0,
+            density=0.0,
+            by_kind={},
+            connected=0,
+            unconnected=1,
+            unconnected_notes=["only.md"],
+        )
+    )
+
+    assert "1 note," in shown
+    assert "1 note connect to nothing" in shown
+    assert "notes" not in shown
 
 
 # --- A report cannot be read as a better result than the run was --------
