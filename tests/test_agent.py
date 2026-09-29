@@ -311,6 +311,174 @@ def test_a_note_matching_more_distinctive_words_still_wins(tmp_path):
     )
 
 
+# --- What the model is handed, as opposed to where the walk starts ------
+
+def recording(seen):
+    """A phraser that records the notes it was handed, and answers.
+
+    A `Turn` reports what was *kept* of the answer, not what the answer
+    was written from, so a test that wants to know which notes the model
+    read has to be in the room for the one call that reads them.
+    """
+    def phraser(question, evidence):
+        seen.extend(path for path, _text in evidence)
+        path, text = evidence[0]
+        return Answer(
+            text="It reads a corpus.",
+            evidence=[Citation(path=path, quote=text.split("\n")[0])],
+        )
+
+    return phraser
+
+
+def _crowded(tmp_path):
+    """A branch where the graph reaches further than the question does.
+
+    Six notes hold the question's two common words, so all six are seeds
+    and all six sit at depth zero, which is the state the graph on a real
+    branch is nearly always in — 41 relations a note there, and 39 seeds
+    tied at the same depth for one question.
+
+    `zebra` is the only note about lamination and sorts last among the
+    seeds, so an ordering that fell to the note's own name would put the
+    five alphabetically first in front of the model and the one note the
+    question was about behind them, past the bound of five.
+    """
+    return corpus(
+        tmp_path,
+        "crowded",
+        zebra="lamination",
+        allotment="the allotment wants water with the hose",
+        bus="the bus wants oil with the filter",
+        ferry="the ferry wants rope with the knot",
+        hall="the hall wants chairs with the tables",
+        piano="the piano wants felt with the strings",
+        shed="the shed wants paint with the brush. See [[apple]] and [[birch]].",
+        apple="apple harvest orchard bins",
+        birch="birch saplings hedge gaps",
+        **{f"pad{n}": text for n, text in enumerate([
+            "kayak paddle river rapids",
+            "kayak paddle river eddies",
+            "beehive frames harvest lavender",
+            "beehive frames harvest clover",
+        ])}
+    )
+
+
+def test_the_model_reads_the_notes_the_question_is_about(tmp_path):
+    """Ranking the seeds was half a fix until this.
+
+    Seeds were ranked by what they shared with the question, and then
+    thrown away one line later: `_gather` ordered the evidence by
+    `(depth, name)`, every seed is at depth zero, and so the evidence
+    handed to the model was the five alphabetically first of the seeds.
+    Measured on a 131-note branch, a question about halving was answered
+    from five diary notes sharing only *the* and *with*, while the note
+    actually about halving — ranked first among the seeds, and not among
+    what was read — was left out along with 118 others.
+
+    So the ranking decided the order of a line in the report and nothing
+    else. What the model reads is what the answer is written from; if the
+    ranking does not reach it, the ranking has not been made.
+    """
+    seen: list[str] = []
+
+    turn(
+        "what went wrong with the lamination?",
+        _crowded(tmp_path),
+        answer_from=recording(seen),
+    )
+
+    assert seen == [
+        "zebra.md",
+        "allotment.md",
+        "bus.md",
+        "ferry.md",
+        "hall.md",
+    ], (
+        "the note about lamination first, then the five that share only the "
+        "question's common words, in name order because they tie. Under "
+        "the old ordering these were the same five without zebra.md, "
+        "which fell past the bound."
+    )
+
+
+def test_the_notes_read_run_from_what_the_question_is_about_out_to_what_is_nearest(
+    tmp_path,
+):
+    """All three keys, in the order they are consulted.
+
+    Relevance first: the two seeds share a subject word and so are worth
+    something, and they come before every note that shares nothing.
+    Depth next, among those notes: `cedar` is two hops out and `apple`
+    and `birch` are one, so it reads last of the three. The note's own
+    name last of all, which is what makes the order the same however the
+    store hands its rows over.
+
+    Depth cannot decide between a seed and a note the question does not
+    reach, because there is no such pair: a note holding a word of the
+    question *is* a seed, and every seed sits at depth zero by how a
+    breadth-first walk starts. So depth ranks what the question says
+    nothing about and never overrules what it does.
+    """
+    idx = corpus(
+        tmp_path,
+        "ordered",
+        alpha="lamination. See [[apple]].",
+        cobalt="gasket. See [[birch]].",
+        apple="apple orchard bins. See [[cedar]].",
+        birch="birch hedge gaps",
+        cedar="cedar fence posts",
+        pad_one="kayak paddle river rapids",
+        pad_two="beehive frames harvest clover",
+    )
+    seen: list[str] = []
+
+    turn("lamination gasket gone wrong?", idx, answer_from=recording(seen))
+
+    assert seen == [
+        "alpha.md",
+        "cobalt.md",
+        "apple.md",
+        "birch.md",
+        "cedar.md",
+    ], (
+        "lamination and gasket are each in one note and so are worth the "
+        "most, and they tie on that and fall to the name. None of the "
+        "other three shares a word with the question, so they are ordered "
+        "on how far the walk reached them: apple and birch at one hop, "
+        "cedar at two, with the name breaking the tie between the first "
+        "two."
+    )
+
+
+def test_the_notes_read_are_the_same_however_the_store_is_ordered(tmp_path):
+    """The sibling of the seed-ordering test, for the evidence.
+
+    A turn that read a different set of notes on a second run would make
+    the evaluation a measurement of SQLite's row order, and the bound is
+    where that would show: five notes are kept out of however many were
+    reached, so a different order means different notes.
+    """
+    idx = _crowded(tmp_path)
+    first: list[str] = []
+    second: list[str] = []
+
+    turn(
+        "what went wrong with the lamination?",
+        idx,
+        answer_from=recording(first),
+    )
+    turn(
+        "what went wrong with the lamination?",
+        idx,
+        answer_from=recording(second),
+    )
+
+    assert first == second
+    assert len(first) == MAX_EVIDENCE
+
+
 def test_a_note_is_found_by_its_name_even_when_its_words_are_elsewhere(tmp_path):
     """DECISION: a note's name is one of its words.
 

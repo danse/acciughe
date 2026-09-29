@@ -455,7 +455,7 @@ def test_the_reader_is_told_what_is_being_read_before_the_pause(index):
         on_progress=said.append,
     )
 
-    assert "reading 4 notes: lonely.md, seed.md, one.md, two.md" in said[0]
+    assert "reading 4 notes: seed.md, lonely.md, one.md, two.md" in said[0]
     assert "one to two minutes" in said[0]
 
 

@@ -118,7 +118,66 @@ def _name(note_id: str) -> str:
     return base.rsplit(".", 1)[0].lower() if "." in base else base.lower()
 
 
-def seeds_for(question: str, index: Index) -> list[str]:
+@dataclass(frozen=True, slots=True)
+class Ask:
+    """What a question is asking for, and what each of its words is worth
+    in this branch.
+
+    The two halves travel together because nothing can be ranked against
+    a question without both. A note is relevant when it shares a term
+    with the question, and *how* relevant depends on how few notes here
+    hold that term — a fact about the branch rather than about the word,
+    which a caller cannot work out on its own. Held together for the same
+    reason `terms()` takes its stopwords as an argument: seeds and
+    evidence are ranked by the same rule, and two functions computing
+    relevance separately would be free to drift apart, with one of them
+    still looking correct on its own.
+    """
+
+    terms: frozenset[str]
+    weight: dict[str, float]
+
+    def shared(self, note_id: str, text: str) -> frozenset[str]:
+        """The question's terms this note holds.
+
+        A note's own name counts among its terms: a question naming a
+        note is about that note, whichever way the note is filed. No
+        stopword set is passed because ``terms`` here is already the
+        branch's, so intersecting against it removes them again.
+        """
+        return (terms(text) | {_name(note_id)}) & self.terms
+
+    def worth(self, note_id: str, text: str) -> float:
+        """What this note has to say about the question, in the branch's
+        own units.
+
+        Summed, so breadth counts — but each term is weighed by how rare
+        it is here, so breadth of *common* words does not count as much
+        as one subject word.
+
+        Zero is ambiguous on its own: it is both a note that shares
+        nothing with the question and a note that shares only terms no
+        note could be separated by. `shared` tells the two apart, and a
+        caller seeding a walk needs to.
+        """
+        return sum(self.weight.get(term, 0.0) for term in self.shared(note_id, text))
+
+
+def _ask_for(question: str, index: Index) -> Ask:
+    """The question read against the branch, once per turn.
+
+    Both halves are derived here rather than by the callers that need
+    them, so a turn reads the branch's texts once and every ranking in
+    it is scored from the same weights.
+    """
+    stop = index.stopwords()
+    return Ask(
+        terms=frozenset(terms(question, stop)),
+        weight=distinguishing(dict(index.notes()), stop),
+    )
+
+
+def seeds_for(ask: Ask, index: Index) -> list[str]:
     """The notes to start the walk from, most promising first.
 
     A note is a seed when it shares at least one distinctive word with
@@ -140,39 +199,75 @@ def seeds_for(question: str, index: Index) -> list[str]:
     Ties break on the note's own name so that the walk is the same
     however the store happens to be ordered.
     """
-    stop = index.stopwords()
-    asked = terms(question, stop)
-    if not asked:
+    if not ask.terms:
         # Every word was one this corpus writes in every note, so there
         # is nothing to match on. A question made only of them is not
         # about this corpus.
         return []
 
-    notes = dict(index.notes())
-    weight = distinguishing(notes, stop)
-
     scored: list[tuple[float, str]] = []
-    for note_id, text in notes.items():
-        shared = (terms(text, stop) | {_name(note_id)}) & asked
-        if shared:
-            scored.append((-sum(weight.get(term, 0.0) for term in shared), note_id))
-    return [note_id for _score, note_id in sorted(scored)]
+    for note_id, text in index.notes():
+        if ask.shared(note_id, text):
+            scored.append((-ask.worth(note_id, text), note_id))
+    return [note_id for _worth, note_id in sorted(scored)]
 
 
 # --- Reaching -----------------------------------------------------------
 
 def _gather(
-    index: Index, reach: Reach
+    index: Index, reach: Reach, ask: Ask
 ) -> tuple[list[tuple[str, str]], list[str]]:
-    """The notes the walk found, nearest first, and what a bound leaves
-    out.
+    """The notes the walk found, best first, and what a bound leaves out.
 
-    Nearest first rather than alphabetical, so a bound drops the furthest
-    note rather than an arbitrary one. The seed is included: it is the
-    note the question landed on, and offering its neighbours without it
-    would hide what the question was actually about.
+    **Ordered by what each note has to say about the question, then by
+    how near it was.** Both, in that order, and the first is the one that
+    matters: a graph is dense — 41 relations a note on the 131-note
+    branch this was measured on — so nearly every note reached sits at
+    the same depth as the seed, and ordering by depth alone left the tie
+    to the note's name. The evidence was then the five alphabetically
+    first of 39 seeds, for a question about halving: five diary notes
+    sharing only *the* and *with*, while the note actually about halving,
+    ranked first among the seeds, was not among them.
+
+    That put the ranking a seed was given out of reach of the model. A
+    walk's seeds are where to start and its evidence is what the answer
+    is written from; ranking one and not the other means the ranking
+    decided the order of a line in the report and nothing else.
+
+    Depth still decides, so a bound drops the furthest of equally
+    relevant notes rather than an arbitrary one — but it can only ever
+    be a tie-break, and saying so matters. A note holding a word of the
+    question *is* a seed by `seeds_for`'s own rule, and a breadth-first
+    walk puts every seed at depth zero, so relevance is above zero
+    exactly when the depth is zero. Putting relevance first therefore
+    ranks what the question is about ahead of how far the walk had to
+    come for it, and never the other way round: a note three hops out
+    that the question is *about* cannot outrank a note one hop out that
+    it is not, because no such note exists to be one hop out and not a
+    seed.
+
+    The seed is included even when the question barely touches it: it is
+    where the walk started, and offering its neighbours without it would
+    hide what the question was about.
+
+    DECISION: relevance before depth. `product.md` says the walk reads
+    the graph and is explicit about refusing when the walk is unconnected
+    or thin, but not about the order of the notes it hands the model.
+    Nearest-first was the order before, on the reasoning that a bound
+    should drop the furthest note rather than an arbitrary one — which
+    this keeps, as the tie-break, and no longer lets stand as the first
+    key.
+
+    A note that shares nothing with the question scores zero and sorts
+    last, behind every note that does, however near. That is the honest
+    reading: it is in the evidence because the graph reached it, and the
+    walk is allowed to say so.
     """
-    order = sorted(reach.reached, key=lambda n: (reach.depth_of(n), n))
+    def rank(note_id: str) -> tuple[float, int, str]:
+        text = index.note_text(note_id) or ""
+        return (-ask.worth(note_id, text), reach.depth_of(note_id), note_id)
+
+    order = sorted(reach.reached, key=rank)
     evidence = [(n, index.note_text(n) or "") for n in order[:MAX_EVIDENCE]]
     return evidence, order[MAX_EVIDENCE:]
 
@@ -283,10 +378,11 @@ def turn(
         session.ask(question)
 
     refresh = index.refresh()
-    seeds = seeds_for(question, index)
+    ask = _ask_for(question, index)
+    seeds = seeds_for(ask, index)
     reach = index.graph().reach(seeds)
     beyond = reach.reached - set(seeds)
-    evidence, withheld = _gather(index, reach)
+    evidence, withheld = _gather(index, reach, ask)
 
     proposed: Answer | None = None
     citations: CitationReport | None = None

@@ -55,9 +55,11 @@ from acciughe.session import Session
 
 # What gemma3:270m said when asked about this corpus, recorded verbatim.
 # The answer is the whole sentence the note holds, and the two notes are
-# numbered over the evidence the walk offers — nearest first, so
-# compiler.md, garden.md, index.md. It numbered 1 and 3 because garden.md
-# has nothing in it about the pipeline.
+# numbered over the evidence the walk offers: compiler.md first because it
+# is the only note the question's subject words are in, then garden.md and
+# index.md, which share only "the" with the question, tie and fall to the
+# name. It numbered 1 and 3 because garden.md has nothing in it about the
+# pipeline.
 ANSWERED = json.dumps(
     {
         "answer": "The compiler pipeline reads the notes folder, builds an "

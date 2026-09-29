@@ -49,6 +49,15 @@ so, and the tests say so more precisely.
   the graph, where 32% of all pairs being related is still the shape the
   branch has, and the noise line still cannot be measured.
 
+  The same weighting now ranks the evidence, which is what makes it a fix
+  rather than a preference. It was applied to the seeds first and thrown
+  away one line later: `_gather` ordered what the model reads by `(depth,
+  name)`, every seed sits at depth zero, and so the evidence was the five
+  alphabetically first of the seeds. On this branch a question about
+  halving was answered from five `anni/` diary notes sharing only *the*
+  and *with*, while the note actually about halving — first among the
+  seeds — was read by nobody. Ranked, it is first.
+
   No cliff exists to put a threshold on: ranking terms by how widespread
   they are, and by how many pairs they alone relate, give the *same*
   ordering, decaying smoothly. Density against the share, measured, is
@@ -58,17 +67,21 @@ so, and the tests say so more precisely.
   saying what they want a graph of theirs to look like.
 
 - **Whether a breadth of shared words should outrank one rare word.**
-  Left over from the same work and visible in the measurements: seeds are
-  scored by the *sum* of their shared terms' weights, so a note matching
+  Left over from the same work and visible in the measurements: a note is
+  scored by the *sum* of its shared terms' weights, so a note matching
   `did`, `the` and `why` (8.40) beats a note that actually contains
   `press` (6.17). Taking the strongest single term instead puts `press`
   first, and reads better on the case where the question names something
   that is there. It throws away breadth, so a question naming three parts
   of one subject would seed on whichever note mentioned one in passing.
 
-  The sum is in place and the trade is measured rather than guessed at.
-  Frequency alone cannot settle it, because `why` is rare in a corpus of
-  diaries and programming notes and rare is all frequency knows.
+  The sum is in place, for the seeds and for the evidence alike, and the
+  trade is measured rather than guessed at. Frequency alone cannot settle
+  it, because `why` is rare in a corpus of diaries and programming notes
+  and rare is all frequency knows. What has changed since this was
+  written is that the ranking now reaches the notes the model reads,
+  which makes the trade worth more than it looked: it is not only which
+  note the walk starts from.
 
 - **Whether a linking convention should be a rule.** Counting the words
   that say nothing over the branch closed the multilingual fault, and left
