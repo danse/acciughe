@@ -30,9 +30,9 @@ Python 3.11+. No runtime dependencies yet.
 | `model.py` | One call to a local model per turn, and the parsing that makes its answer usable |
 | `keyword.py` | Plain keyword search: the baseline the graph is compared against |
 | `propose.py` | Questions the graph proposes, lifted from the corpus rather than written |
-| `evaluation.py` | Citation correctness, the question-set rule, the graph metrics, and the report a run is counted into |
+| `evaluation.py` | Citation correctness, the question-set rule, the graph metrics, the profile of a corpus, and the report a run is counted into |
 | `trial.py` | Running the evaluation: propose, judge, ask, keep the receipts |
-| `render.py` | Every rendering: a turn, a read, the graph's measurements, a run's report |
+| `render.py` | Every rendering: a turn, a read, the graph's measurements, a corpus's profile, a run's report |
 | `cli.py` | The commands, and where a branch's graph and conversations are kept |
 
 The tests are the specification for behaviour. Each names the sentence

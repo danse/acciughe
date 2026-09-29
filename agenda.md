@@ -1,20 +1,11 @@
 # Agenda
 
-What is left to build, and what is still undecided. `README.md` says what
-the project is and where the code is; `product.md` says what it is
-required to be. What is already built is not listed here — the code says
-so, and the tests say so more precisely.
-
-## Remaining
-
-1. **`acciughe summarise`.** `product.md` now has a `## Summary` section
-   and nothing implements it. Counted from the same graph an answer is
-   walked — subjects by notes and relations, the notes most related to,
-   which subjects touch which, notes stranded, and the noise line — and
-   never written by the model, because a description carries no citations
-   and a small model cannot compose one. Four of the five parts work on a
-   real branch today; the fifth is the noise line, which reads from the
-   same threshold the seeding fix left open.
+What is still undecided. `README.md` says what the project is and where
+the code is; `product.md` says what it is required to be. What is decided
+is not listed here — the code says so, and the tests say so more
+precisely. There is no longer anything to build that is not asked for by
+one of the two, so there is no `Remaining`; an item leaves this file when
+it is decided rather than moving to a list of what was done.
 
 ## Not decided
 
@@ -42,6 +33,14 @@ so, and the tests say so more precisely.
   halving was answered from five `anni/` diary notes sharing only *the*
   and *with*, while the note actually about halving — first among the
   seeds — was read by nobody. Ranked, it is first.
+
+  It now has a command that shows it. `acciughe summarise` ends with the
+  noise line, and on this branch that line is the one that reports no
+  word reaching half the notes and says the graph may be held together by
+  vocabulary everybody shares. So the threshold is no longer a judgement
+  buried in a derivation — it is the last line of a description a reader
+  runs, and the numbers above it are qualified by it on the same screen.
+  Whoever decides `_SHARE` now has somewhere to see what it cost.
 
   No cliff exists to put a threshold on: ranking terms by how widespread
   they are, and by how many pairs they alone relate, give the *same*

@@ -35,8 +35,10 @@ from acciughe.evaluation import (
     Verdict,
     citation_report,
     graph_metrics,
+    profile,
     question_verdict,
     report,
+    subjects_of,
 )
 from acciughe.index import Index
 from acciughe.keyword import KeywordSearch
@@ -665,3 +667,149 @@ def test_the_report_needs_no_corpus_and_asks_no_model():
     found = report([asked("a?", Answer("x"), 2, 2)])
 
     assert (found.answers, found.citations, found.correct) == (1, 2, 2)
+
+
+# --- Describing the corpus ----------------------------------------------
+
+def test_a_subject_is_the_first_directory_a_note_is_filed_under(tmp_path):
+    """product.md: "Subjects are read from note paths — the first
+    directory, or the note's own name at the top of the branch."
+
+    The first directory and not the whole path: `anni/2022/dec/29` on a
+    branch of daily notes would give 60-odd subjects, and a subject per
+    month of a diary is not what a reader means by a subject.
+    """
+    assert subjects_of(
+        ["anni/2022/dec/29.md", "tracsis/acquisto/halving.hs", "loose.md"],
+        "atland",
+    ) == {
+        "anni/2022/dec/29.md": "anni",
+        "tracsis/acquisto/halving.hs": "tracsis",
+        "loose.md": "loose",
+    }
+
+
+def test_a_corpus_with_no_folders_is_one_subject_named_after_the_branch():
+    """The case where the other sentence applies.
+
+    Read strictly, "the note's own name at the top of the branch" would
+    give a subject per note, and 131 subjects each named after a note the
+    reader already has is the note list again with a heading on it. So a
+    branch where nothing is in a directory has no subject to name from
+    anything but itself.
+
+    This is the reading under which both sentences of product.md are true
+    at once, and it is pinned here because the alternative is a profile
+    that is worse the flatter the corpus is — which is exactly backwards.
+    """
+    assert subjects_of(["one.md", "two.md"], "notes") == {
+        "one.md": "notes",
+        "two.md": "notes",
+    }
+
+
+def test_a_note_at_the_top_of_a_filed_branch_is_a_subject_of_its_own(tmp_path):
+    """The other sentence, for the case it is actually about.
+
+    A branch with folders and a few notes loose at the top of it: the
+    loose notes are not in any folder, so the first rule reaches for
+    their names. Whether that is what a reader wants is the reader's
+    call, and product.md says so.
+    """
+    assert subjects_of(["anni/2022/dec/29.md", "scratch.md"], "atland") == {
+        "anni/2022/dec/29.md": "anni",
+        "scratch.md": "scratch",
+    }
+
+
+def test_a_branch_with_no_notes_at_all_has_no_subjects():
+    """The empty case, which is a different finding from a flat one."""
+    assert subjects_of([], "notes") == {}
+
+
+def _filed(tmp_path):
+    """A branch of folders, linked so the subjects actually reach."""
+    root = tmp_path / "filed"
+    root.mkdir()
+    (root / "anni").mkdir()
+    (root / "anni" / "one.md").write_text("diary about the allotment")
+    (root / "anni" / "two.md").write_text("diary about the allotment hedge")
+    (root / "geo").mkdir()
+    (root / "geo" / "three.md").write_text("See [[anni/one]].")
+    idx = Index(branch=root, store_path=tmp_path / "filed.sqlite3")
+    idx.refresh()
+    return idx
+
+
+def test_the_profile_counts_each_subject_and_what_it_reaches(tmp_path):
+    """The measurement behind the rendering, on a branch a reader could
+    check by hand: two folders, three notes, one pair between them."""
+    counted = profile(_filed(tmp_path))
+    by_name = {subject.name: subject for subject in counted.subjects}
+
+    assert counted.branch == "filed"
+    assert counted.notes == 3
+    assert by_name["anni"].notes == 2
+    assert by_name["geo"].notes == 1
+    assert by_name["anni"].inside == 1, "the two diaries share the allotment"
+    assert by_name["anni"].touches == {"geo": 1}
+    assert by_name["geo"].touches == {"anni": 1}, "and it is said both ways"
+
+
+def test_the_subjects_are_the_biggest_first_and_ties_are_broken_by_name(tmp_path):
+    """Same ordering rule as the seeds and the evidence: a count, and the
+    note's own name where the count is equal, so the profile is the same
+    however the store hands its rows over."""
+    root = tmp_path / "ordered"
+    root.mkdir()
+    for name in ("beta", "alpha", "gamma"):
+        (root / name).mkdir()
+    for name in ("beta", "alpha"):
+        (root / name / "one.md").write_text(f"note about {name} things")
+    (root / "gamma" / "one.md").write_text("note about gamma things")
+    idx = Index(branch=root, store_path=tmp_path / "ordered.sqlite3")
+    idx.refresh()
+
+    names = [subject.name for subject in profile(idx).subjects]
+
+    assert names[:2] == ["alpha", "beta"], (
+        "two notes each, so the name decides"
+    )
+    assert names[2] == "gamma", "and the one-note subject comes last"
+
+
+def test_a_pair_related_twice_is_counted_once(tmp_path):
+    """An edge is a *reason* two notes are related; a pair is that they
+    are related. A link and a co-occurrence on the same two notes is the
+    second stage agreeing with the first, and counting it twice would
+    report a corpus as more joined-together than it is — the reason
+    `GraphMetrics` keeps `edges` and `pairs` apart, kept here too."""
+    root = tmp_path / "twice"
+    root.mkdir()
+    (root / "one.md").write_text("The allotment fence needs a coat.")
+    (root / "two.md").write_text("The allotment fence needs paint. See [[one]].")
+    idx = Index(branch=root, store_path=tmp_path / "twice.sqlite3")
+    idx.refresh()
+
+    counted = profile(idx)
+    subject = counted.subjects[0]
+
+    assert counted.related == [("one.md", 1), ("two.md", 1)]
+    assert subject.inside == 1, "one pair, however many reasons it had"
+
+
+def test_a_note_that_reaches_nothing_is_not_ranked_among_the_related(tmp_path):
+    """It has no pairs, so a rank over pairs would put it on a zero. The
+    count of them is `graph`'s to report and it names them there."""
+    root = tmp_path / "lonely"
+    root.mkdir()
+    (root / "one.md").write_text("See [[two]].")
+    (root / "two.md").write_text("The target of the link.")
+    (root / "three.md").write_text("Nothing here connects to anything.")
+    idx = Index(branch=root, store_path=tmp_path / "lonely.sqlite3")
+    idx.refresh()
+
+    counted = profile(idx)
+
+    assert [name for name, _ in counted.related] == ["one.md", "two.md"]
+    assert counted.notes == 3

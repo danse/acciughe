@@ -40,7 +40,13 @@ import sys
 from pathlib import Path
 
 from acciughe.agent import turn
-from acciughe.evaluation import Attempt, graph_metrics, report, ubiquity
+from acciughe.evaluation import (
+    Attempt,
+    graph_metrics,
+    profile,
+    report,
+    ubiquity,
+)
 from acciughe.index import Index
 from acciughe.model import DEFAULT_HOST, DEFAULT_MODEL, Ollama, phrasing
 from acciughe.render import (
@@ -49,6 +55,7 @@ from acciughe.render import (
     render_attempt,
     render_metrics,
     render_report,
+    render_summary,
 )
 from acciughe.session import Session
 from acciughe.trial import gather as trial_gather, run as trial_run
@@ -181,6 +188,36 @@ def _graph(args, out, err) -> int:
     index = Index(branch=branch, store_path=store_for(branch))
     out.write(
         render_read(index.refresh()) + "\n" + render_metrics(graph_metrics(index)) + "\n"
+    )
+    return 0
+
+
+def _summarise(args, out, err) -> int:
+    """What the corpus holds, counted from the graph an answer is walked.
+
+    product.md: "A corpus can also be described rather than questioned.
+    The description is counted from the same graph an answer is walked."
+
+    Separate from `graph` rather than folded into it, and the difference is
+    what the two are for. `graph` asks whether the derivation is sound —
+    density, how much is co-occurrence rather than relation, what reaches
+    nothing — and a reader who is not trusting the graph does not need a
+    profile of it. This asks what is *in* it, which is the question a
+    corpus too large to read is actually asked, and which is worth nothing
+    until the graph can be believed.
+
+    The read is reported above the profile, for the same reason `_graph`
+    does: these are counts over a graph, and a graph that did not match
+    the branch would be counting the wrong one.
+    """
+    branch = args.branch.resolve()
+    if not branch.is_dir():
+        err.write(f"not a branch: {branch}\n")
+        return 1
+
+    index = Index(branch=branch, store_path=store_for(branch))
+    out.write(
+        render_read(index.refresh()) + "\n" + render_summary(profile(index)) + "\n"
     )
     return 0
 
@@ -325,6 +362,9 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "sessions", help="list the conversations about this branch"
     ).set_defaults(run=_sessions)
+    commands.add_parser(
+        "summarise", help="describe the corpus: subjects, and what reaches what"
+    ).set_defaults(run=_summarise)
 
     evaluate = commands.add_parser(
         "evaluate", help="measure the graph against the questions in your notes"

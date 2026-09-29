@@ -50,13 +50,24 @@ from acciughe.evaluation import (
     CitationReport,
     Finding,
     GraphMetrics,
+    Profile,
+    Subject,
     Ubiquity,
     Verdict,
     report,
 )
 from acciughe.index import Index, Read
 from acciughe.propose import Proposal
-from acciughe.render import ORPHANS_SHOWN, render, render_attempt, render_metrics, render_report
+from acciughe.render import (
+    ORPHANS_SHOWN,
+    RELATED_SHOWN,
+    SUBJECTS_SHOWN,
+    render,
+    render_attempt,
+    render_metrics,
+    render_report,
+    render_summary,
+)
 from acciughe.session import (
     Answer,
     Citation,
@@ -1218,3 +1229,141 @@ def test_the_line_names_the_note_the_question_was_asked_in():
     assert render_attempt(_attempt(Answer("x"), CitationReport(1, 1))).startswith(
         "press.md: "
     )
+
+
+# --- Describing the corpus, counted rather than written ------------------
+
+def _profile(**over):
+    """A profile shaped like the one a real branch gave.
+
+    Fourteen subjects over 131 notes, with two of them holding almost
+    everything and reaching each other far more than anything else, which
+    is the shape a corpus of diaries and one long subject tends to have.
+    """
+    fields = dict(
+        branch="atland",
+        notes=131,
+        subjects=[
+            Subject("anni", 45, inside=803, touches={"tracsis": 534, "geo": 148}),
+            Subject("tracsis", 44, inside=242, touches={"anni": 534, "geo": 102}),
+            Subject("geo", 15, inside=30, touches={"anni": 148, "tracsis": 102}),
+        ],
+        related=[("tracsis/geschichte", 115), ("investments/roots", 99)],
+        noise=_noise(),
+    )
+    fields.update(over)
+    return Profile(**fields)
+
+
+def test_a_summary_says_what_the_corpus_holds_and_what_reaches_what():
+    """product.md: "the subjects it holds, the notes most related to,
+    which subjects touch which others".
+
+    A subject's size alone is the directory listing the reader already
+    has. What each folder *reaches* is the part they cannot see without
+    running something, so it is on the line beside the count.
+    """
+    shown = render_summary(_profile())
+
+    assert "131 notes in 3 subjects" in shown
+    assert "anni: 45 notes, 803 pairs among themselves, reaching tracsis 534" in shown
+    assert "most related notes:" in shown
+    assert "tracsis/geschichte: 115 notes" in shown
+
+
+def test_a_subject_that_reaches_nothing_says_so_rather_than_printing_nothing():
+    """An empty field on a line of numbers reads as a column the reader
+    has not been shown yet, so it would be read as missing rather than as
+    measured and found to be nothing."""
+    shown = render_summary(
+        _profile(subjects=[Subject("lonely", 3, inside=0, touches={})])
+    )
+
+    assert "lonely: 3 notes, 0 pairs among themselves, reaching no other subject" in shown
+
+
+def test_a_subject_reaching_more_than_is_named_says_how_many_were_left():
+    """Same rule as the orphans: the count is on the line either way, so a
+    truncated list is a shorter list and not a different claim. Silently
+    dropping the rest would make a reader take four subjects for all of
+    them."""
+    shown = render_summary(
+        _profile(subjects=[
+            Subject(
+                "anni", 45, inside=803,
+                touches={f"other{n}": 10 - n for n in range(7)},
+            ),
+        ])
+    )
+
+    assert "reaching other0 10, other1 9, other2 8, other3 7" in shown
+    assert "and 3 more it reaches" in shown
+
+
+def test_a_branch_with_more_subjects_than_are_named_says_so():
+    """The same floor as the orphans, and the same reason: a branch can
+    hold three hundred folders, and a profile that printed all of them
+    would be the note list with a heading on it."""
+    shown = render_summary(
+        _profile(subjects=[
+            Subject(f"subject{n:02d}", 10 - n) for n in range(SUBJECTS_SHOWN + 2)
+        ])
+    )
+
+    assert f"131 notes in {SUBJECTS_SHOWN + 2} subjects" in shown
+    assert "and 2 more subjects not named here" in shown
+    assert f"subject{SUBJECTS_SHOWN - 1:02d}" in shown
+    assert f"subject{SUBJECTS_SHOWN:02d}" not in shown
+
+
+def test_a_branch_with_more_notes_related_than_are_named_says_so():
+    """As above, for the notes: 131 of them are related and naming all of
+    them would be the branch listing."""
+    shown = render_summary(
+        _profile(related=[(f"note{n:03d}.md", 100 - n) for n in range(RELATED_SHOWN + 5)])
+    )
+
+    assert f"note{RELATED_SHOWN - 1:03d}.md: " in shown
+    assert f"note{RELATED_SHOWN:03d}.md" not in shown
+    assert "and 5 more notes not named here" in shown
+
+
+def test_a_branch_whose_notes_reach_nothing_says_so_and_ranks_nothing():
+    """A corpus of one note has no related notes, and printing an empty
+    list under a heading called "most related" would invite a reader to
+    wait for entries that were never going to arrive."""
+    shown = render_summary(_profile(subjects=[Subject("only", 1)], related=[]))
+
+    assert "no two notes are related, so there is nothing to rank" in shown
+    assert "most related notes" not in shown
+
+
+def test_a_branch_with_no_notes_says_so():
+    """The one case where every count is zero and the sentence is the
+    finding. "0 notes in 0 subjects" reads as a command that failed."""
+    shown = render_summary(_profile(notes=0, subjects=[], related=[]))
+
+    assert "this branch holds no notes" in shown
+
+
+def test_the_noise_line_comes_last_so_it_qualifies_the_counts_above():
+    """Degree is what the graph says, and on a corpus where the stopword
+    threshold finds nothing, degree counts a great deal of vocabulary
+    everybody shares. So the counts above are true of the graph and this
+    is the line that says whether the graph is a relation."""
+    lines = render_summary(_profile()).splitlines()
+
+    assert "no word is in half of the notes" in lines[-1], (
+        f"the qualifying reading is last, not among the counts: {lines[-1]}"
+    )
+
+
+def test_a_summary_without_a_noise_measurement_still_renders():
+    """`Profile.noise` is optional because it is a measurement passed in,
+    the same way `Report.ubiquity` is. A profile without one renders
+    without it rather than printing an absence it never measured."""
+    shown = render_summary(_profile(noise=None))
+
+    assert "131 notes in 3 subjects" in shown
+    assert "of the corpus writes" not in shown
+    assert "no word is in" not in shown

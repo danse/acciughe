@@ -27,7 +27,9 @@ from acciughe.evaluation import (
     MIN_COMPARISON,
     Attempt,
     GraphMetrics,
+    Profile,
     Report,
+    Subject,
     Ubiquity,
 )
 from acciughe.index import Read
@@ -64,6 +66,19 @@ _FORK = {
 # than hidden either way: the count is always on the line, so a truncated
 # list is a shorter list and not a different claim.
 ORPHANS_SHOWN = 10
+
+# How many subjects, and how many of the notes most related to, are named
+# before the rest are only counted. Same reasoning as `ORPHANS_SHOWN` and
+# the same rule about it: the count is on the line either way, so a
+# truncated list is a shorter list rather than a different claim. A branch
+# can hold three hundred folders and three hundred notes worth naming, and
+# a profile that printed all of them would be the note list with a
+# heading.
+SUBJECTS_SHOWN = 12
+RELATED_SHOWN = 10
+
+# How many other subjects one subject is said to touch, per line.
+_TOUCHES_SHOWN = 4
 
 # What each derivation stage is called in a sentence. Falling back to the
 # kind itself is deliberate rather than a gap: a stage added to the graph
@@ -391,6 +406,117 @@ def render_report(report: Report) -> str:
     if report.ubiquity is not None:
         lines.append(_ubiquity_of(report.ubiquity))
     return "\n".join(line for line in lines if line)
+
+
+def render_summary(profile: Profile) -> str:
+    """What the corpus holds, counted rather than written.
+
+    product.md: "A corpus can also be described rather than questioned.
+    The description is counted from the same graph an answer is walked:
+    the subjects it holds, the notes most related to, which subjects touch
+    which others, and how much of the graph is held together by words
+    nearly every note writes."
+
+    **No sentence here is written about the corpus, only counted.** That
+    is the spec's own reason and it is a good one: a description carries
+    no citations, so a sentence about what a corpus *is* would be the one
+    claim in this tool that nothing could check. Every line below is a
+    number a reader can go and verify, and that is also what makes it
+    worth having — a corpus too large to read is exactly the one a
+    sentence about it would be worth the least.
+
+    **The subjects come with their reach, not just their size.** A count of
+    notes is the directory listing the reader already has; what the folder
+    *connects to* is the part they cannot see without running anything, and
+    it is the same count the graph was built from. So each subject carries
+    its notes, the pairs inside it, and the subjects it reaches.
+
+    **Touching is printed both ways, and that is not redundant.** A pair of
+    subjects can be very lopsided — 43 notes reaching 2, and 2 notes
+    reaching 43 — and a reader who saw only the heavier side would take
+    that to be the whole relation. The counts are of pairs, and they will
+    not match, because one note's pair is counted once.
+
+    **The noise line comes last and is the one that qualifies the rest.**
+    Degree is what the graph says, and on a corpus where the stopword
+    threshold finds nothing, degree counts a great deal of vocabulary
+    everybody shares. The four sections above are true of the graph
+    regardless; this is the one that says whether the graph is a relation
+    or a coincidence, and burying it would let the numbers above be read
+    as more than they are.
+    """
+    lines = [
+        f"{profile.notes} note{_plural(profile.notes)} in "
+        f"{len(profile.subjects)} subject{_plural(len(profile.subjects))}"
+    ]
+
+    lines += _subjects_of(profile)
+    lines += _related_of(profile)
+    if profile.noise is not None:
+        lines.append(_ubiquity_of(profile.noise))
+    return "\n".join(line for line in lines if line)
+
+
+def _subjects_of(profile: Profile) -> list[str]:
+    """The subjects, largest first, and what each reaches.
+
+    Largest by notes rather than by reach, because the notes are the thing
+    a reader recognises and the reach is the thing they are being told.
+    """
+    if not profile.subjects:
+        return ["  this branch holds no notes"]
+
+    lines = ["  subjects:"]
+    for subject in profile.subjects[:SUBJECTS_SHOWN]:
+        line = (
+            f"    {subject.name}: {subject.notes} note"
+            f"{_plural(subject.notes)}, {subject.inside} pair"
+            f"{_plural(subject.inside)} among themselves"
+        )
+        lines.append(line + _touches_of(subject))
+
+    if len(profile.subjects) > SUBJECTS_SHOWN:
+        left = len(profile.subjects) - SUBJECTS_SHOWN
+        lines.append(f"    and {left} more subject{_plural(left)} not named here")
+    return lines
+
+
+def _touches_of(subject: Subject) -> str:
+    """The subjects this one reaches, most pairs first.
+
+    A subject that reaches nothing says so rather than printing nothing,
+    because an empty field on a line of numbers reads as a column the
+    reader has not been shown yet.
+    """
+    if not subject.touches:
+        return ", reaching no other subject"
+
+    ranked = sorted(subject.touches.items(), key=lambda kv: (-kv[1], kv[0]))
+    said = ", ".join(f"{name} {count}" for name, count in ranked[:_TOUCHES_SHOWN])
+    if len(ranked) > _TOUCHES_SHOWN:
+        left = len(ranked) - _TOUCHES_SHOWN
+        said += f", and {left} more it reaches"
+    return f", reaching {said}"
+
+
+def _related_of(profile: Profile) -> list[str]:
+    """The notes most connected to others, most first.
+
+    A count of notes reaching nothing is not here: `graph` names those, and
+    a profile that repeated them would be a second place to look for one
+    fact.
+    """
+    if not profile.related:
+        return ["  no two notes are related, so there is nothing to rank"]
+
+    lines = ["  most related notes:"]
+    for note_id, count in profile.related[:RELATED_SHOWN]:
+        lines.append(f"    {note_id}: {count} note{_plural(count)}")
+
+    if len(profile.related) > RELATED_SHOWN:
+        left = len(profile.related) - RELATED_SHOWN
+        lines.append(f"    and {left} more note{_plural(left)} not named here")
+    return lines
 
 
 def _ubiquity_of(noise: Ubiquity) -> str:

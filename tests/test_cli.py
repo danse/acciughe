@@ -827,3 +827,105 @@ def test_a_question_is_required(tmp_path, state, model):
     with pytest.raises(SystemExit):
         run(["--branch", str(tmp_path), "--state", str(state), "--host", model,
              "ask"])
+
+
+# --- Describing the corpus ----------------------------------------------
+
+def test_a_corpus_can_be_described_without_a_model(tmp_path, state):
+    """product.md: "A corpus can also be described rather than
+    questioned", and "It is counted rather than written."
+
+    Two claims in one, and the first is the reason the command exists: a
+    reader with a branch too large to read and a question they cannot
+    phrase gets a description without a turn, so nothing here waits on a
+    model. The host is pointed at a port nothing is listening on, so a
+    command that reached for one would fail rather than quietly pass.
+
+    The second is why the description is counts: a model small enough to
+    run on your device cannot compose a description of a corpus, and a
+    description carries no citations, so a sentence about the corpus would
+    be the one claim in this tool that nothing could check.
+    """
+    branch = _filed_branch(tmp_path)
+    code, out, err = run(
+        ["--branch", str(branch), "--state", str(state),
+         "--host", "http://127.0.0.1:1", "summarise"]
+    )
+
+    said = out.getvalue()
+    assert code == 0, err.getvalue()
+    assert "3 notes in 2 subjects" in said
+    assert "anni: 2 notes, 1 pair among themselves, reaching geo 1" in said
+    assert "most related notes:" in said
+
+
+def _filed_branch(tmp_path):
+    branch = tmp_path / "filed"
+    (branch / "anni").mkdir(parents=True)
+    (branch / "geo").mkdir(parents=True)
+    (branch / "anni" / "one.md").write_text("diary about the allotment")
+    (branch / "anni" / "two.md").write_text("diary about the allotment hedge")
+    (branch / "geo" / "three.md").write_text("See [[anni/one]].")
+    return branch
+
+
+def test_a_description_reports_the_read_above_the_counts(tmp_path, state):
+    """The counts are over a graph, and a graph that did not match the
+    branch would be counting the wrong one — so the line saying the notes
+    are current is what makes the numbers below it mean what they appear
+    to mean. Same reason `graph` reports it, and it is not a preamble.
+
+    Asked twice because the two are different lines: the first run has
+    nothing to compare against and says what it read, the second says the
+    notes are up to date. It is the second that licenses the counts, and
+    it would not be printed at all if the read were left out.
+    """
+    branch = _filed_branch(tmp_path)
+    run(["--branch", str(branch), "--state", str(state), "summarise"])
+
+    _code, out, _err = run(
+        ["--branch", str(branch), "--state", str(state), "summarise"]
+    )
+
+    lines = out.getvalue().splitlines()
+    assert lines[0] == "notes are up to date"
+    assert lines[1] == "3 notes in 2 subjects"
+
+
+def test_a_description_of_something_that_is_not_a_branch_says_so(tmp_path, state):
+    """The same guard every other command has, for the same reason: the
+    figures are of a corpus and there is no corpus to figure out."""
+    missing = tmp_path / "nowhere"
+
+    code, out, err = run(
+        ["--branch", str(missing), "--state", str(state), "summarise"]
+    )
+
+    assert code == 1
+    assert "not a branch" in err.getvalue()
+    assert out.getvalue() == ""
+
+
+def test_a_flat_corpus_describes_itself_as_one_subject(tmp_path, state):
+    """The case a reader hits first, and the one where the two sentences
+    of product.md only agree on one reading.
+
+    A branch of loose notes has nothing to name a subject by except the
+    note itself, and a subject per note is the note list again under
+    headings the reader already has. So it is one subject, named after the
+    branch — which is what product.md says a corpus not organised into
+    folders describes itself as.
+    """
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    (branch / "one.md").write_text("The allotment fence needs a coat.")
+    (branch / "two.md").write_text("The allotment fence needs paint.")
+    (branch / "three.md").write_text("Nothing here reaches anything.")
+
+    _code, out, _err = run(
+        ["--branch", str(branch), "--state", str(state), "summarise"]
+    )
+
+    said = out.getvalue()
+    assert "3 notes in 1 subject" in said
+    assert "notes: 3 notes" in said

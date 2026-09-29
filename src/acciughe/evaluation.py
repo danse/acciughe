@@ -24,7 +24,7 @@ measure, since it is believed.
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -360,6 +360,150 @@ def graph_metrics(index: Index) -> GraphMetrics:
         connected=len(linked & note_ids),
         unconnected=len(unconnected_notes),
         unconnected_notes=unconnected_notes,
+    )
+
+
+# --- What a branch holds -----------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class Subject:
+    """One subject the branch holds, and how much of it reaches out.
+
+    ``inside`` and ``touches`` are both counted in pairs rather than in
+    relations, for the reason `GraphMetrics` keeps the two apart: a
+    co-occurrence edge on a pair you already linked by hand is the second
+    stage agreeing with the first, and a profile that counted it twice
+    would report a corpus as more joined-together than it is.
+
+    ``notes`` rather than a share, because the count is what a reader can
+    go and check and a percentage of what is not stated would be a
+    fraction of a denominator they have to go and find.
+    """
+
+    name: str
+    notes: int
+    inside: int = 0
+    touches: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class Profile:
+    """A description of the corpus, every line of it a count.
+
+    ``related`` is the notes most connected to others, by distinct pairs,
+    most first. Not by weight: a weight is a relation's strength and two
+    relations of different kinds are not comparable, so ranking on one
+    would rank a subject that shares many words above one you linked by
+    hand, which is the opposite of what a reader would expect from the
+    order.
+
+    ``noise`` is carried rather than recomputed because it is a
+    measurement and the profile is not allowed to hold a corpus: the
+    caller passes the measurement in, the same way `report()` does.
+    """
+
+    branch: str
+    notes: int
+    subjects: list[Subject] = field(default_factory=list)
+    related: list[tuple[str, int]] = field(default_factory=list)
+    noise: Ubiquity | None = None
+
+
+def _subject_of(note_id: str) -> str:
+    """The subject a note belongs to, from where it is filed.
+
+    `product.md`: "Subjects are read from note paths — the first
+    directory, or the note's own name at the top of the branch."
+    """
+    head, slash, _rest = note_id.partition("/")
+    if not slash:
+        return note_id.rsplit(".", 1)[0]
+    return head
+
+
+def subjects_of(notes: list[str], branch: str) -> dict[str, str]:
+    """Which subject each note belongs to, and by what rule.
+
+    The first directory, or the note's own name at the top of the branch
+    — with one case the two sentences of `product.md` only agree on. A
+    corpus with *no* folders has nothing to name a subject by except the
+    note itself, and one subject per note is not a description of anything:
+    it is the note list again, under headings the reader already has. So
+    where no note is in a directory, the branch is the subject and there
+    is one of it.
+
+    That is the only reading under which both sentences are true at once,
+    which is why it was taken rather than the first one alone: read
+    strictly, "the note's own name at the top of the branch" describes a
+    mixed corpus, where it does apply, and the second sentence covers the
+    corpus where no directory exists to apply it to.
+    """
+    filed = [note_id for note_id in notes if "/" in note_id]
+    if not filed:
+        return {note_id: branch for note_id in notes}
+    return {note_id: _subject_of(note_id) for note_id in notes}
+
+
+def profile(index: Index, share: float = UBIQUITY) -> Profile:
+    """What a branch holds, counted from the graph an answer is walked.
+
+    The same graph, read for its shape rather than for what it can
+    answer. `graph_metrics` says how dense it is; this says what is in
+    it, which is the question a corpus too large to read is actually
+    asked.
+
+    A note's subject is not stored: it is read from the path every time,
+    so moving a note between folders changes the profile without anything
+    being re-derived. That is the same reason `ubiquity` recomputes rather
+    than reading the store — this is a measurement of the corpus and not
+    part of the derivation.
+    """
+    notes = sorted(index.note_ids())
+    home = subjects_of(notes, index.branch.name)
+
+    counts: Counter[str] = Counter(home[note_id] for note_id in notes)
+    inside: Counter[str] = Counter()
+    touches: dict[str, Counter[str]] = defaultdict(Counter)
+    degree: Counter[str] = Counter()
+
+    seen: set[frozenset[str]] = set()
+    for a, b, _kind, _weight in index.edges():
+        pair = frozenset((a, b))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        degree[a] += 1
+        degree[b] += 1
+        here, there = home.get(a), home.get(b)
+        if here is None or there is None:
+            # An edge naming a note the branch does not hold. The read
+            # reports it as dangling; a subject cannot be counted for it.
+            continue
+        if here == there:
+            inside[here] += 1
+        else:
+            touches[here][there] += 1
+            touches[there][here] += 1
+
+    subjects = [
+        Subject(
+            name=name,
+            notes=count,
+            inside=inside[name],
+            touches=dict(touches[name]),
+        )
+        for name, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+    return Profile(
+        branch=index.branch.name,
+        notes=len(notes),
+        subjects=subjects,
+        related=sorted(
+            ((note_id, degree[note_id]) for note_id in notes if degree[note_id]),
+            key=lambda pair: (-pair[1], pair[0]),
+        ),
+        noise=ubiquity(index, share=share),
     )
 
 
