@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 from acciughe.agent import turn
-from acciughe.evaluation import Attempt, graph_metrics, report
+from acciughe.evaluation import Attempt, graph_metrics, report, ubiquity
 from acciughe.index import Index
 from acciughe.model import DEFAULT_HOST, DEFAULT_MODEL, Ollama, phrasing
 from acciughe.render import (
@@ -269,7 +269,9 @@ def _evaluate(args, out, err) -> int:
             f"\nstopped after {count} question{'' if count == 1 else 's'}, "
             "of a run that had not finished. what it decided:\n"
         )
-    out.write(render_report(report(gathered.attempts)) + "\n")
+    out.write(
+        render_report(report(gathered.attempts, ubiquity(index))) + "\n"
+    )
     return 0 if gathered.finished else 130
 
 

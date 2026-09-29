@@ -228,6 +228,13 @@ class Ubiquity:
     list of the words is: every one of them is a word the stopword list
     should have known about, and naming them is how a reader finds out
     which language the list is missing.
+
+    ``threshold`` is the share a word had to reach to count as writing
+    nothing, and it is carried rather than assumed to be `UBIQUITY`,
+    because ``ubiquity`` takes the share as an argument and a report that
+    named the wrong one would be describing a measurement made by a
+    different rule than the one that was run. It is what the sentence
+    shown to the reader says, so it cannot be a detail.
     """
 
     notes: int
@@ -235,6 +242,7 @@ class Ubiquity:
     held_by_these_alone: int
     share: float
     terms: list[tuple[str, int]]
+    threshold: float = UBIQUITY
 
 
 def ubiquity(
@@ -300,6 +308,7 @@ def ubiquity(
         held_by_these_alone=held,
         share=(held / co) if co else 0.0,
         terms=widest[:_NAMED],
+        threshold=share,
     )
 
 
@@ -467,6 +476,22 @@ class Report:
     that asked two. A turn takes a minute or two, so a run over a real
     branch has to stop somewhere, and a stop that is not counted is a
     yield presented as though it were the whole.
+
+    ``ubiquity`` is the one measurement here that is not about the run at
+    all. Everything else counts attempts; this counts the corpus, and it
+    is the thing that would explain a poor yield rather than be part of
+    one — a graph whose co-occurrence edges are held up by words half the
+    corpus writes is a graph that looks connected and finds nothing, and
+    a report showing a low yield without showing that would leave the
+    reader to guess which of the two they are looking at.
+
+    It is optional and passed in, not computed here, because `report` asks
+    for no corpus and consults no model. A function that reached for the
+    index to measure it would be the one place in the evaluation able to
+    both count a run and describe the notes, and the guarantee that it
+    cannot guess is worth more than the convenience of not passing an
+    argument. `trial.run` holds the index, so the caller measures and
+    hands it over.
     """
 
     proposed: int = 0
@@ -479,6 +504,7 @@ class Report:
     correct: int = 0
     uncorroborated: int = 0
     fabricated: list[Finding] = field(default_factory=list)
+    ubiquity: Ubiquity | None = None
 
     @property
     def measured(self) -> int:
@@ -522,7 +548,7 @@ class Report:
         return self.kept >= MIN_COMPARISON
 
 
-def report(attempts: Iterable[Attempt]) -> Report:
+def report(attempts: Iterable[Attempt], ubiquity: Ubiquity | None = None) -> Report:
     """What a run of the evaluation found.
 
     A pure count over what was attempted. It asks for no corpus and consults
@@ -538,14 +564,25 @@ def report(attempts: Iterable[Attempt]) -> Report:
     has what it decided, and a function that wanted a list first would
     be asking the caller to defeat that.
 
-    Every number here is counted off the same list, and nothing is passed
-    in beside it. That is not tidiness: the proposed count, the yield and
-    the number of questions a run stopped short of are three views of one
-    set, and three numbers supplied from three places are three numbers
-    that can disagree. A count of the questions a run had not reached,
-    added to the length of the list and set on the report as well, was
-    the shape this replaced, and the two were easy to get right
+    Every number here is counted off the same list, and nothing else is
+    passed in beside it. That is not tidiness: the proposed count, the
+    yield and the number of questions a run stopped short of are three
+    views of one set, and three numbers supplied from three places are
+    three numbers that can disagree. A count of the questions a run had
+    not reached, added to the length of the list and set on the report as
+    well, was the shape this replaced, and the two were easy to get right
     separately and wrong together.
+
+    ``ubiquity`` is the one thing passed in, and it is not a view of the
+    attempts — it is a count of the corpus, made by a function that takes
+    an index and knows nothing about a run. Handing over the finished
+    measurement keeps the guarantee above intact in the only way it can
+    be: a report still holds no corpus, so there is still nothing in here
+    that could consult the notes about anything. Reading the words that
+    hold the co-occurrence edges together, inside the function that
+    decides what a run meant, would be the same measurement wearing a
+    different hat and able to reach the notes once it had learned to
+    count.
     """
     attempts = list(attempts)
     checked = [a for a in attempts if a.citations is not None]
@@ -565,4 +602,5 @@ def report(attempts: Iterable[Attempt]) -> Report:
         correct=sum(a.citations.correct for a in checked),
         uncorroborated=sum(1 for a in checked if a.citations.uncorroborated),
         fabricated=[f for a in checked for f in a.citations.fabricated],
+        ubiquity=ubiquity,
     )

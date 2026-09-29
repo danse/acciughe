@@ -22,7 +22,14 @@ examination that cannot say what it skipped is an assertion.
 from __future__ import annotations
 
 from acciughe.agent import Turn
-from acciughe.evaluation import KEPT, MIN_COMPARISON, Attempt, GraphMetrics, Report
+from acciughe.evaluation import (
+    KEPT,
+    MIN_COMPARISON,
+    Attempt,
+    GraphMetrics,
+    Report,
+    Ubiquity,
+)
 from acciughe.index import Read
 from acciughe.session import (
     Answer,
@@ -381,7 +388,87 @@ def render_report(report: Report) -> str:
 
     lines.append(_outcomes_of(report))
     lines += _citations_of(report)
+    if report.ubiquity is not None:
+        lines.append(_ubiquity_of(report.ubiquity))
     return "\n".join(line for line in lines if line)
+
+
+def _ubiquity_of(noise: Ubiquity) -> str:
+    """How much of the graph is held together by words everybody writes.
+
+    **Last, and as its own paragraph, because it is a fact about the
+    corpus rather than about the run.** Everything above it counts turns;
+    this counts edges, and it is the reading that explains the yield
+    rather than joining it. A low yield beside a high share is one
+    finding — the graph looked connected and found nothing — and a reader
+    shown the yield without this has been shown half the cause.
+
+    It does not go directly under the yield, which would break the shape
+    above: the answer rate and the citation correctness are inseparable
+    and anything printed between them invites a reader to quote them
+    apart. Putting it after them costs a line of adjacency and keeps the
+    one pairing that must not be broken.
+
+    **The threshold is spoken as the fraction it is.** `UBIQUITY` is half
+    the corpus today and `ubiquity` takes the share as an argument, so
+    the sentence is built from the measurement's own `threshold` rather
+    than from the constant. A hard-coded "half" beside a measurement
+    taken at three quarters would be describing a rule that was never
+    run, which is the one failure this report is built to make
+    impossible.
+
+    **The words are named, not just counted.** A share on its own is a
+    number to accept or ignore; "these twelve are in more than half your
+    notes" is a list a reader can act on, and every word in it is one the
+    stopword list should have known about. Naming them is also how a
+    reader finds out which language the list is missing — a corpus in two
+    languages shares its function words, and a word appearing in both
+    halves of such a corpus is either one word in both languages or one
+    the corpus happens to repeat.
+
+    **A measurement that could not be taken says so, and prints no
+    percentage.** Three absences, each of which would otherwise print a
+    number that reads as a result:
+
+    - No co-occurrence edges at all. `0 of 0` is a division nothing was
+      divided into, and `0%` beside it is a perfect score.
+    - No word reaching the threshold. This is the one a real corpus
+      produced, and it is the subtlest: if no word is in enough notes,
+      then by the threshold's own definition no edge is held by
+      ubiquitous words alone, and the count is *zero and correct* — 0 of
+      3365, 0%. But the threshold found nothing to measure with, so the
+      figure describes a rule that never applied rather than a corpus
+      that came out clean. The two are opposite findings and print the
+      same digits, which is why the sentence names the absence instead of
+      reporting the rate.
+    - Words found, none of which held an edge alone. A real share of
+      zero, and said as such, because here the rule did apply and found
+      the corpus clean.
+    """
+    if not noise.edges:
+        return (
+            "  nothing relates notes by shared words, so no words hold the "
+            "graph together"
+        )
+
+    if not noise.terms:
+        return (
+            "  no word is in "
+            f"{_fraction(noise.threshold)} of the notes, so nothing was "
+            "measured: the graph may be held together by words everybody "
+            "writes, and this cannot tell"
+        )
+
+    said = (
+        f"  {noise.held_by_these_alone} of {noise.edges} co-occurrence "
+        "relations are held together only by words "
+        f"{_fraction(noise.threshold)} of the corpus writes "
+        f"({_percent(noise.share)})"
+    )
+    if not noise.held_by_these_alone:
+        said += ", and this has named them anyway"
+    words = ", ".join(f"{word} in {seen}" for word, seen in noise.terms)
+    return f"{said}\n    {words}"
 
 
 def _yield_of(report: Report) -> str:
@@ -443,3 +530,19 @@ def _citations_of(report: Report) -> list[str]:
 
 def _percent(fraction: float) -> str:
     return f"{round(fraction * 100)}%"
+
+
+# How a share is spoken when it is a rule rather than a result. Half and
+# most are the two a threshold ever lands on in practice, and anything
+# else falls back to the number, because a strange fraction spelled in
+# words would be read as a precise claim about a threshold that was
+# chosen to be crude.
+_FRACTIONS = {
+    0.5: "half",
+    0.9: "nine tenths",
+    0.75: "three quarters",
+}
+
+
+def _fraction(share: float) -> str:
+    return _FRACTIONS.get(share, _percent(share))

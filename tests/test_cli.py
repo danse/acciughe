@@ -665,6 +665,92 @@ def test_a_run_that_never_got_to_a_question_says_it_was_never_reached(
     )
 
 
+def _branch_in_clumps(tmp_path, clumped: bool):
+    """Notes related only inside their own clump of three.
+
+    Nine notes in three groups. Every note in a group carries that
+    group's three words and none of the others', so a pair inside a group
+    shares three terms, a pair across groups shares none, and co-occurrence
+    produces edges without relating the corpus to itself.
+
+    ``clumped`` adds one word to every note, which is what a real corpus
+    has and a fixture usually does not: an English or Italian function
+    word in all nine of them. That is the word `ubiquity` is for, and
+    without it the measurement has nothing to take.
+    """
+    branch = tmp_path / ("widespread" if clumped else "flat")
+    branch.mkdir()
+    for group in range(3):
+        shared = f"alpha{group} beta{group} gamma{group}"
+        for member in range(3):
+            everywhere = " the" if clumped else ""
+            (branch / f"g{group}n{member}.md").write_text(
+                f"{shared}{everywhere} unique{group}{member}\n"
+            )
+    return branch
+
+
+def test_the_report_measures_the_corpus_and_not_only_the_run(tmp_path, state, model):
+    """agenda.md, second item: "The report carries `ubiquity`."
+
+    A yield without it is half a cause. If the graph's co-occurrence
+    edges are held up by words nearly every note writes, then a poor
+    yield and a high share are one finding — the graph looked connected
+    and found nothing — and a report showing only the yield has shown
+    the symptom and called it a result.
+    """
+    _code, out, _err = run(
+        ["--branch", str(_branch_in_clumps(tmp_path, clumped=True)),
+         "--state", str(state), "--host", model, "evaluate", "--limit", "0"]
+    )
+
+    said = out.getvalue()
+    assert "co-occurrence relations are held together" in said, (
+        "so the reading names what it measured"
+    )
+    assert "of the corpus writes" in said, "and at what threshold"
+    assert "the in 9" in said, "and which words, so the rule can be argued with"
+
+    lines = said.splitlines()
+    answers = next(i for i, l in enumerate(lines) if l.strip().startswith("answers"))
+    corpus = next(i for i, l in enumerate(lines) if "co-occurrence relations" in l)
+    assert answers < corpus, (
+        "and it comes after the pair of figures that cannot be separated, "
+        "rather than between them. Nothing was asked here, so the second "
+        "of the pair is the line saying so — the ordering is what is "
+        "under test, not the figures."
+    )
+
+
+def test_a_corpus_whose_words_reach_no_threshold_says_it_was_not_measured(
+    tmp_path, state, model
+):
+    """The reading a real 131-note Italian-and-English branch produced.
+
+    Nine notes in three clumps: pairs are related, and no word is in half
+    of them, so the threshold finds nothing to measure with. The count it
+    would otherwise report is *zero and correct* — no edge is held by a
+    word half the corpus writes, because no such word exists — and it
+    means the opposite of what a 0% means.
+    """
+    _code, out, _err = run(
+        ["--branch", str(_branch_in_clumps(tmp_path, clumped=False)),
+         "--state", str(state), "--host", model, "evaluate", "--limit", "0"]
+    )
+
+    said = out.getvalue()
+    assert "nothing relates notes by shared words" not in said, (
+        "the corpus does relate notes, so this is not the other absence"
+    )
+    assert "nothing was measured" in said, (
+        "the threshold found no word, so the rule never applied"
+    )
+    assert "may be held together" in said, "and the unknown says which way it points"
+    assert "co-occurrence relations are held together" not in said, (
+        "and no rate is claimed for a measurement nobody made"
+    )
+
+
 def test_a_run_asks_no_questions_and_records_no_conversation(questioned, state, model):
     """A trial is a measurement of the notes, not a conversation with them.
 

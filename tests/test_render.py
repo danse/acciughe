@@ -50,6 +50,7 @@ from acciughe.evaluation import (
     CitationReport,
     Finding,
     GraphMetrics,
+    Ubiquity,
     Verdict,
     report,
 )
@@ -892,6 +893,200 @@ def test_a_wrong_citation_is_named_by_note_and_why():
 
     assert "border.md" in shown
     assert "quoted text is not in the cited note" in shown
+
+
+# --- The corpus is measured too, and an absence is not a score -----------
+
+def _noise(**over):
+    """A ubiquity measurement shaped like the one a real corpus gave.
+
+    The defaults are a read from a mixed Italian-and-English branch of
+    131 notes in which no word reached the threshold, which is why
+    ``terms`` starts empty: it is the case where the measurement could
+    not be taken at all, and the case that would otherwise print a
+    perfect and completely unearned 0%.
+    """
+    fields = dict(
+        notes=131,
+        edges=2730,
+        held_by_these_alone=0,
+        share=0.0,
+        terms=[],
+        threshold=0.5,
+    )
+    fields.update(over)
+    return Ubiquity(**fields)
+
+
+def _answered(question="q?", **over):
+    fields = dict(
+        proposal=Proposal(question=question, asked_in="s.md", answers=["a.md"]),
+        verdict=Verdict(KEPT, "search cannot follow this"),
+        outcome=Answer("x"),
+        citations=CitationReport(2, 2),
+    )
+    fields.update(over)
+    return Attempt(**fields)
+
+
+def _corpus_line(reported):
+    """The line a corpus measurement renders to, and nothing else.
+
+    Scoped to one line on purpose. The answer rate prints its own `0%`
+    when nothing was asked, and that is a real figure about a real
+    absence; the assertions here are about whether the *corpus* reading
+    invents a rate, and searching a whole rendering for `%` would fail on
+    a line that has nothing to do with the question.
+    """
+    lines = [
+        line for line in render_report(reported).splitlines()
+        if "of the corpus writes" in line or "no word is in" in line
+        or "nothing relates notes" in line
+    ]
+    assert len(lines) == 1, f"expected one corpus line, got {lines}"
+    return lines[0]
+
+
+def test_a_report_carries_the_corpus_measurement_alongside_the_run():
+    """agenda.md, second item: "The report carries `ubiquity`."
+
+    It is the reading that explains the yield rather than joining it: a
+    low yield beside a high share is one finding — the graph looked
+    connected and found nothing — and a reader shown the yield without
+    this has been shown half the cause.
+    """
+    quiet = report([_answered()])
+    measured = report([_answered()], _noise(
+        terms=[("che", 49), ("per", 50)],
+        held_by_these_alone=1100,
+        share=1100 / 2730,
+    ))
+
+    assert quiet.ubiquity is None, (
+        "and absent rather than zero when nothing was measured, because a "
+        "zero would be indistinguishable from a clean corpus"
+    )
+    assert "1100 of 2730" in render_report(measured)
+    assert "che in 49, per in 50" in render_report(measured)
+
+
+def test_a_measurement_that_found_no_word_says_so_and_prints_no_rate():
+    """A real corpus produced this, and the first rendering printed `0%`.
+
+    No word reached the threshold, so no edge is held by ubiquitous words
+    alone and the count is *zero and correct* — 0 of 2730, 0%. But the
+    threshold found nothing to measure with, so the figure describes a
+    rule that never applied rather than a corpus that came out clean.
+    Those are opposite findings that print the same digits, so the
+    rendering names the absence instead of reporting the rate.
+    """
+    shown = _corpus_line(report([], _noise()))
+
+    assert "no word is in half of the notes" in shown
+    assert "nothing was measured" in shown
+    assert "%" not in shown, (
+        "and no percentage at all: a rate beside a measurement that never "
+        "happened is a score for something nobody looked at. The answer "
+        "rate's own 0% is a different line and is not what this is about."
+    )
+    assert "0 of 2730" not in shown, "nor the count the rule never reached"
+    assert "may be held together" in shown, (
+        "and it says which way the unknown points, rather than leaving "
+        "the graph sounding clean"
+    )
+
+
+def test_a_measurement_that_took_and_found_a_clean_corpus_says_that():
+    """The opposite of the above, and it must not read the same way.
+
+    Words reached the threshold, the rule applied, and no edge turned out
+    to be held by them alone. That is a real zero — a corpus that came
+    out clean — and it is the one case where `0%` is an honest figure.
+    """
+    shown = render_report(report(
+        [], _noise(terms=[("che", 49)], held_by_these_alone=0, share=0.0)
+    ))
+
+    assert "0 of 2730 co-occurrence" in shown
+    assert "(0%)" in shown
+    assert "nothing was measured" not in shown
+    assert "named them anyway" in shown, (
+        "the words are still shown: a reader cannot tell a corpus that "
+        "came out clean from a list that happens to hold nothing without "
+        "seeing which words the rule considered"
+    )
+
+
+def test_a_corpus_with_no_shared_word_relations_reports_no_measurement():
+    """0 of 0 is a division nothing was divided into."""
+    shown = _corpus_line(report(
+        [], _noise(edges=0, held_by_these_alone=0, share=0.0)
+    ))
+
+    assert "nothing relates notes by shared words" in shown
+    assert "%" not in shown, (
+        "0 of 0 is a division nothing was divided into, and a percentage "
+        "of it is a score for a measurement that did not take"
+    )
+
+
+def test_a_report_with_nothing_measured_does_not_mention_the_corpus():
+    """Absent is silent. A line about a measurement nobody made would be
+    a reader looking for a finding that was never taken."""
+    shown = render_report(report([], None))
+
+    assert "measured" not in shown
+    assert "co-occurrence relations are held together" not in shown
+
+
+def test_the_threshold_is_spoken_from_the_measurement_not_the_constant():
+    """`ubiquity` takes the share as an argument.
+
+    A rendering that said "half" beside a measurement taken at three
+    quarters would be describing a rule that was never run, which is the
+    one failure this report exists to make impossible.
+    """
+    at_three_quarters = report(
+        [], _noise(terms=[("che", 49)], held_by_these_alone=900,
+                   share=900 / 2730, threshold=0.75)
+    )
+    at_an_odd_share = report(
+        [], _noise(terms=[("che", 49)], held_by_these_alone=900,
+                   share=900 / 2730, threshold=0.63)
+    )
+
+    assert "words three quarters of the corpus writes" in render_report(
+        at_three_quarters
+    )
+    assert "words 63% of the corpus writes" in render_report(at_an_odd_share), (
+        "an unremarkable threshold falls back to the number rather than "
+        "being guessed at in words"
+    )
+    assert "half of the corpus" not in render_report(at_three_quarters)
+
+
+def test_the_corpus_measurement_comes_last_and_leaves_the_pairing_alone():
+    """The answer rate and the citation correctness cannot be separated.
+
+    Anything printed between them invites a reader to quote them apart,
+    which is the failure `render_report` is built around. So the corpus
+    reading goes after both rather than up beside the yield, and it is
+    its own paragraph.
+    """
+    shown = render_report(report(
+        [_answered()],
+        _noise(terms=[("che", 49)], held_by_these_alone=900,
+               share=900 / 2730),
+    )).splitlines()
+
+    answers = next(i for i, l in enumerate(shown) if l.strip().startswith("answers"))
+    citations = next(i for i, l in enumerate(shown) if "citations" in l)
+    held = next(i for i, l in enumerate(shown) if "co-occurrence" in l)
+
+    assert answers < citations < held, (
+        "the two inseparable figures stay adjacent, and the corpus "
+        "reading comes after them"
+    )
 
 
 # --- What a person sees while the run goes on ----------------------------
