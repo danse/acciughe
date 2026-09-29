@@ -5,6 +5,9 @@ description = "Question-answering across a corpus of notes, over a local agent."
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+acciughe = "acciughe.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8"]
 

@@ -17,7 +17,8 @@ import stat
 
 import pytest
 
-from acciughe.index import Index, StaleGraph, CURRENT_DERIVATION
+from acciughe.index import Index, StaleGraph, CURRENT_DERIVATION, _fingerprint
+from acciughe.relations import CO_OCCURRENCE
 
 
 @pytest.fixture
@@ -401,3 +402,125 @@ def test_deleting_the_store_loses_nothing(tmp_path):
 
     assert rebuilt.note_ids() == {"a.txt", "b.txt"}
     assert report.rebuilt is True
+
+
+# --- What a word means is a fact about the whole branch -----------------
+
+# Which words say nothing is counted over every note, so a change to that
+# set invalidates relations whose two endpoints did not move. That is the
+# one case where "refreshing only redoes what changed" has to be read
+# carefully rather than literally: the change is in what a word *means*,
+# and the notes that changed are not the notes whose relations did.
+
+def kettle_branch(index):
+    """Three notes in which "kettle" is a subject.
+
+    Two of the three have it, so it is in two thirds of the branch rather
+    than nearly all of it, and it is a term: `early` and `middle` share it
+    and "loud", so there is an edge between them. `late` is about a window
+    and is the note the tests below edit — giving it a "kettle" is what
+    makes the word ubiquitous and the edge wrong.
+    """
+    write(index.branch, "early.txt", "a kettle is loud")
+    write(index.branch, "middle.txt", "a kettle is loud too")
+    write(index.branch, "late.txt", "a bedroom window is old")
+
+
+def test_a_word_that_becomes_ubiquitous_re_derives_edges_it_did_not_touch(index):
+    """Refreshing only redoes what changed, so an answer is never given
+    from a graph that does not match the branch.
+
+    The changed note here is `late`, and the edge that must go is between
+    `early` and `middle` — two notes nobody touched. What changed is what
+    "kettle" means: in two notes of three it is a subject and it holds the
+    edge together, and in all three it distinguishes nothing.
+
+    A refresh that re-derived only `late` would leave the edge in the
+    store and answer from a relation the branch no longer supports, which
+    is the fault the sentence forbids.
+    """
+    kettle_branch(index)
+    index.refresh()
+    assert ("early.txt", "middle.txt", 2.0) in index.graph(kind=CO_OCCURRENCE).edges()
+
+    write(index.branch, "late.txt", "a bedroom window next to the kettle")
+
+    index.refresh()
+
+    assert index.graph(kind=CO_OCCURRENCE).edges() == []
+
+
+def test_an_unchanged_word_set_re_derives_nothing(index):
+    """The common case, and the reason the change is noticed by
+    fingerprint rather than by redoing everything.
+
+    Adding a note to a corpus does not usually make a common word
+    uncommon — here it is not even in most of them. So the set is the
+    same, and the notes whose text was not read keep the edges they had.
+    """
+    kettle_branch(index)
+    index.refresh()
+
+    write(index.branch, "unrelated.txt", "a note about a bicycle chain")
+    report = index.refresh()
+
+    assert report.read == ["unrelated.txt"]
+    assert ("early.txt", "middle.txt", 2.0) in index.graph(kind=CO_OCCURRENCE).edges()
+
+
+def test_the_index_records_the_words_that_wrote_it(index):
+    """A graph is written from two things: a version and a set of words.
+    Both are recorded, because both can move while the branch stands
+    still, and a reader holding a graph needs to be able to see which of
+    them wrote it."""
+    for name, text in {
+        "early.txt": "the kettle whistles loudly",
+        "middle.txt": "the kettle is loud",
+        "late.txt": "the kettle is old",
+    }.items():
+        write(index.branch, name, text)
+
+    index.refresh()
+
+    assert index.stop_fingerprint() == _fingerprint(index.stopwords())
+    assert index.stopwords(), "a fingerprint of nothing pins nothing"
+
+
+def test_a_rebuild_records_the_words_it_used_too(index):
+    """A store built from nothing has no previous set to compare against,
+    so it has to record its own. Without that every refresh after a
+    rebuild would find the set "changed" and re-derive the whole corpus
+    again — correct answers, and no cheaper than having no store at all.
+    """
+    for name, text in {
+        "early.txt": "the kettle whistles loudly",
+        "middle.txt": "the kettle is loud",
+        "late.txt": "the kettle is old",
+    }.items():
+        write(index.branch, name, text)
+    index.refresh()
+    index.store_path.unlink()
+
+    rebuilt = Index(branch=index.branch, store_path=index.store_path)
+    report = rebuilt.refresh()
+
+    assert report.rebuilt is True
+    assert rebuilt.stop_fingerprint() == _fingerprint(rebuilt.stopwords())
+
+
+def test_the_words_a_turn_would_use_are_the_ones_the_branch_writes_now(index):
+    """The ubiquitous set is derived from the notes, so reading it must
+    not be cached past a refresh that changed them.
+
+    Caching it would be the natural way to make it cheap, and it would be
+    wrong: a caller holding the set from before an edit would seed a walk
+    with words the branch no longer writes in every note.
+    """
+    kettle_branch(index)
+    index.refresh()
+    assert index.stopwords() == frozenset()
+
+    write(index.branch, "late.txt", "a bedroom window next to the kettle")
+    index.refresh()
+
+    assert index.stopwords() == frozenset({"kettle"})

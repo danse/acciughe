@@ -1,0 +1,22 @@
+# Byte-code caches. Tracked by accident before this file existed, and
+# `git rm --cached` on them was part of adding it: a .pyc changes on
+# every run, so it puts a line in every diff and buries the source
+# change that was actually made.
+__pycache__/
+*.py[cod]
+
+# The environment and the runner's own state. `uv` rebuilds the first
+# from uv.lock; the second is the pytest run's, and neither is a fact
+# about the project.
+.venv/
+.pytest_cache/
+
+# The graph and the conversations. product.md: "A graph is derived and
+# disposable" and "A session writes nothing into the branch, and is kept
+# outside it, since what it records is note content" — so a store is
+# something a branch produces where it is run, never something committed
+# beside the code.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
