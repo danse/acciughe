@@ -1,0 +1,403 @@
+"""Indexing a branch, and knowing when it has changed.
+
+Encodes the Reading section of product.md:
+
+  A branch is indexed before it is answered from, and re-read when it no
+  longer matches. Checking is cheap — the branch is walked and compared
+  with what was last read — and refreshing only redoes what changed, so
+  an answer is never given from a graph that does not match the branch.
+
+  Both happen unasked, and are reported rather than silent. What read a
+  graph is recorded with a semantic version, so a reader whose
+  derivation has changed rebuilds instead of answering from stale
+  structure.
+"""
+
+import stat
+
+import pytest
+
+from acciughe.index import Index, StaleGraph, CURRENT_DERIVATION
+
+
+@pytest.fixture
+def index(tmp_path):
+    """An index over a branch, with its store outside the branch."""
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    return Index(branch=branch, store_path=tmp_path / "state" / "graph.sqlite3")
+
+
+def write(branch, rel, text):
+    path = branch / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+# --- Indexing happens before answering --------------------------------
+
+def test_a_branch_is_indexed_before_it_is_answered_from(index):
+    """A branch is indexed before it is answered from."""
+    write(index.branch, "a.txt", "one")
+
+    assert index.current() is False, "an unindexed branch must not read as current"
+
+    index.refresh()
+
+    assert index.current() is True
+
+
+def test_refreshing_an_unchanged_branch_does_nothing(index):
+    """A branch that already matches does no work."""
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+
+    report = index.refresh()
+
+    assert report.added == []
+    assert report.changed == []
+    assert report.removed == []
+    assert report.read == []
+
+
+# --- Checking is cheap -----------------------------------------------
+
+def test_checking_does_not_read_the_notes(index):
+    """Checking is cheap — the branch is walked and compared.
+
+    Proven the only way that really counts: a note that cannot be opened
+    still checks clean, because the check never opens it.
+    """
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+
+    locked = write(index.branch, "c.txt", "three")
+    locked.chmod(0o000)
+    try:
+        assert index.current() is False, "a new file is drift, seen by stat alone"
+    finally:
+        locked.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_a_changed_note_is_seen_without_reading_it(index):
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+
+    # Content changes and the size changes with it, so the recheck key
+    # differs. The check must notice, and must not have read the file to
+    # do so.
+    path = write(index.branch, "a.txt", "one, and then some more")
+    path.chmod(0o000)
+    try:
+        assert index.current() is False
+    finally:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+# --- Drift is detected per kind ---------------------------------------
+
+def test_a_new_file_is_drift(index):
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+    assert index.current() is True
+
+    write(index.branch, "b.txt", "two")
+
+    assert index.current() is False
+
+
+def test_a_deleted_file_is_drift(index):
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+    assert index.current() is True
+
+    (index.branch / "b.txt").unlink()
+
+    assert index.current() is False
+
+
+def test_an_edited_note_is_drift(index):
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+    assert index.current() is True
+
+    write(index.branch, "a.txt", "one edited and now longer")
+
+    assert index.current() is False
+
+
+def test_an_untouched_branch_is_not_drift(index):
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+
+    assert index.current() is True
+
+
+# --- Refreshing only redoes what changed ------------------------------
+
+def test_refreshing_reads_only_what_changed(index):
+    """Refreshing only redoes what changed."""
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    write(index.branch, "c.txt", "three")
+    index.refresh()
+
+    write(index.branch, "b.txt", "two, revised")
+
+    report = index.refresh()
+
+    assert report.read == ["b.txt"]
+    assert report.added == []
+    assert report.removed == []
+
+
+def test_refreshing_does_not_reopen_unchanged_notes(index):
+    """Refreshing only redoes what changed, proven by the filesystem.
+
+    The unchanged note is made unreadable. A refresh that opened it would
+    report it as unreadable; a refresh that skips it cannot notice, and
+    the note keeps the text it was indexed with. If this assertion ever
+    needs a permission dance to pass, the refresh is reading too much.
+    """
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+
+    write(index.branch, "b.txt", "two, revised")
+    locked = index.branch / "a.txt"
+    locked.chmod(0o000)
+    try:
+        report = index.refresh()
+    finally:
+        locked.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    assert report.read == ["b.txt"]
+    assert report.unreadable == []
+    assert index.note_text("a.txt") == "one", (
+        "the unchanged note was served from the index, not re-read"
+    )
+    assert index.note_text("b.txt") == "two, revised"
+
+
+def test_a_deleted_note_is_dropped_from_the_index(index):
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+
+    (index.branch / "a.txt").unlink()
+    report = index.refresh()
+
+    assert report.removed == ["a.txt"]
+    assert index.note_ids() == {"b.txt"}
+
+
+def test_a_new_note_is_added_to_the_index(index):
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+
+    write(index.branch, "b.txt", "two")
+    report = index.refresh()
+
+    assert report.added == ["b.txt"]
+    assert index.note_ids() == {"a.txt", "b.txt"}
+
+
+def test_a_moved_note_is_a_delete_and_an_add(index):
+    """DECISION: a move is not tracked across.
+
+    The tool never moves notes, so a move is one the user made. Carrying
+    relations over it would assert continuity nobody asked for.
+    """
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+
+    (index.branch / "a.txt").rename(index.branch / "b.txt")
+    report = index.refresh()
+
+    assert report.removed == ["a.txt"]
+    assert report.added == ["b.txt"]
+
+
+# --- Both happen unasked, and are reported ----------------------------
+
+def test_refreshing_is_reported_rather_than_silent(index):
+    """Both happen unasked, and are reported rather than silent."""
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+    write(index.branch, "c.txt", "three")
+
+    report = index.refresh()
+
+    assert report.added == ["c.txt"], "the work done is visible to the caller"
+
+
+def test_an_unreadable_file_is_reported_when_the_branch_is_indexed(index):
+    """A file that cannot be read as text is reported when the branch is indexed."""
+    (index.branch / "blob.dat").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+    write(index.branch, "a.txt", "one")
+
+    report = index.refresh()
+
+    assert [u.path for u in report.unreadable] == ["blob.dat"]
+
+
+def test_a_note_reported_unreadable_is_not_in_the_index(index):
+    (index.branch / "blob.dat").write_bytes(b"\x00\x01\x02\xff\xfe")
+
+    index.refresh()
+
+    assert index.note_ids() == set()
+
+
+# --- Never answering from a graph that does not match -----------------
+
+def test_answering_from_a_drifted_graph_is_refused(index):
+    """An answer is never given from a graph that does not match the branch."""
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+    write(index.branch, "a.txt", "one, but now different")
+
+    with pytest.raises(StaleGraph):
+        index.answer_from_current_graph()
+
+
+def test_answering_from_a_matched_graph_is_allowed(index):
+    write(index.branch, "a.txt", "one")
+    index.refresh()
+
+    index.answer_from_current_graph()  # does not raise
+
+
+def test_answering_from_an_unindexed_branch_is_refused(index):
+    write(index.branch, "a.txt", "one")
+
+    with pytest.raises(StaleGraph):
+        index.answer_from_current_graph()
+
+
+# --- What read a graph is recorded with a semantic version ------------
+
+def test_the_index_records_the_derivation_that_wrote_it(index):
+    """What read a graph is recorded with a semantic version."""
+    write(index.branch, "a.txt", "one")
+
+    index.refresh()
+
+    assert index.derivation_version() == CURRENT_DERIVATION
+
+
+def test_a_changed_derivation_rebuilds_instead_of_answering(tmp_path):
+    """A reader whose derivation has changed rebuilds instead of answering
+    from stale structure."""
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    store = tmp_path / "state" / "graph.sqlite3"
+    write(branch, "a.txt", "one")
+
+    old = Index(branch=branch, store_path=store)
+    old.refresh()
+    assert old.current() is True, "unchanged branch, unchanged derivation"
+
+    # The derivation has moved on. Nothing about the branch changed.
+    new = Index(branch=branch, store_path=store, derivation=CURRENT_DERIVATION + 1)
+
+    assert new.current() is False, "a stale derivation is not a current graph"
+
+
+def test_a_stale_derivation_cannot_be_answered_from(tmp_path):
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    store = tmp_path / "state" / "graph.sqlite3"
+    write(branch, "a.txt", "one")
+
+    old = Index(branch=branch, store_path=store)
+    old.refresh()
+
+    new = Index(branch=branch, store_path=store, derivation=CURRENT_DERIVATION + 1)
+
+    with pytest.raises(StaleGraph):
+        new.answer_from_current_graph()
+
+
+def test_a_stale_derivation_rebuilds_from_the_notes(tmp_path):
+    """A rebuild is possible because the graph is derived and disposable."""
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    store = tmp_path / "state" / "graph.sqlite3"
+    write(branch, "a.txt", "one")
+    write(branch, "b.txt", "two")
+
+    old = Index(branch=branch, store_path=store)
+    old.refresh()
+
+    new = Index(branch=branch, store_path=store, derivation=CURRENT_DERIVATION + 1)
+    report = new.refresh()
+
+    assert report.rebuilt is True
+    assert new.note_ids() == {"a.txt", "b.txt"}
+    assert new.current() is True
+    assert new.derivation_version() == CURRENT_DERIVATION + 1
+
+
+def test_the_store_lives_outside_the_branch(tmp_path):
+    """A session writes nothing into the branch; nor does the index.
+
+    DECISION: the index is outside the branch for the same reason a
+    session is. The branch holds notes and nothing derived.
+    """
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    store = tmp_path / "state" / "graph.sqlite3"
+    write(branch, "a.txt", "one")
+
+    idx = Index(branch=branch, store_path=store)
+    idx.refresh()
+
+    assert store.exists()
+    assert {p.name for p in branch.iterdir()} == {"a.txt"}, (
+        "the branch must contain notes and nothing this tool derived"
+    )
+
+
+def test_a_graph_from_an_index_knows_every_note(index):
+    """The graph a query runs over includes notes with no relations.
+
+    product.md measures "how many notes end up connected to nothing", so
+    the graph handed to a query must carry the whole note set, not just
+    the notes an extractor happened to relate.
+    """
+    from acciughe.graph import Graph
+
+    write(index.branch, "a.txt", "one")
+    write(index.branch, "b.txt", "two")
+    index.refresh()
+
+    g = Graph(edges=[], notes=index.note_ids())
+
+    assert g.notes() == {"a.txt", "b.txt"}
+    assert g.unconnected() == {"a.txt", "b.txt"}, (
+        "with no extractor run yet, nothing is connected"
+    )
+
+
+def test_deleting_the_store_loses_nothing(tmp_path):
+    """A graph is derived and disposable, and can be deleted at any time."""
+    branch = tmp_path / "notes"
+    branch.mkdir()
+    store = tmp_path / "state" / "graph.sqlite3"
+    write(branch, "a.txt", "one")
+    write(branch, "b.txt", "two")
+
+    Index(branch=branch, store_path=store).refresh()
+    store.unlink()
+
+    rebuilt = Index(branch=branch, store_path=store)
+    report = rebuilt.refresh()
+
+    assert rebuilt.note_ids() == {"a.txt", "b.txt"}
+    assert report.rebuilt is True

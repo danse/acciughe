@@ -1,0 +1,20 @@
+[project]
+name = "acciughe"
+version = "0.1.0"
+description = "Question-answering across a corpus of notes, over a local agent."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/acciughe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
