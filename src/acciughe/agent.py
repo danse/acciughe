@@ -36,7 +36,7 @@ from typing import Callable, Protocol
 from acciughe.evaluation import CitationReport, citation_report
 from acciughe.graph import Reach
 from acciughe.index import Index, Read
-from acciughe.relations import terms
+from acciughe.relations import distinguishing, terms
 from acciughe.session import (
     ABSENT,
     THIN,
@@ -128,6 +128,15 @@ def seeds_for(question: str, index: Index) -> list[str]:
     holding a starting point to that standard would drop notes the
     question plainly names.
 
+    **Ranked by how much those shared words distinguish, not by how many
+    there are.** `distinguishing` weighs a term by the log of how few
+    notes hold it, so a note matching on one subject word outranks a note
+    matching on four words every note in the corpus writes. A count got
+    this backwards on a corpus in two languages: the words a question and
+    a note have most often in common are the ones with the least to say
+    about either, and every candidate shares them equally, so the count
+    was ordering the seeds by noise.
+
     Ties break on the note's own name so that the walk is the same
     however the store happens to be ordered.
     """
@@ -139,12 +148,15 @@ def seeds_for(question: str, index: Index) -> list[str]:
         # about this corpus.
         return []
 
-    scored: list[tuple[int, str]] = []
-    for note_id, text in index.notes():
+    notes = dict(index.notes())
+    weight = distinguishing(notes, stop)
+
+    scored: list[tuple[float, str]] = []
+    for note_id, text in notes.items():
         shared = (terms(text, stop) | {_name(note_id)}) & asked
         if shared:
-            scored.append((-len(shared), note_id))
-    return [note_id for _count, note_id in sorted(scored)]
+            scored.append((-sum(weight.get(term, 0.0) for term in shared), note_id))
+    return [note_id for _score, note_id in sorted(scored)]
 
 
 # --- Reaching -----------------------------------------------------------

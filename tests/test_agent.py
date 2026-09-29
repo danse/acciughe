@@ -243,6 +243,74 @@ def test_a_word_every_note_has_does_not_seed_a_note(answerable):
     assert result.outcome.kind is RefusalKind.ABSENT
 
 
+# --- Seeds are ranked by what a shared word says, not how many there are --
+
+def test_one_word_nobody_else_writes_outranks_four_words_everybody_writes(
+    tmp_path,
+):
+    """The count that ranked seeds before this got this backwards.
+
+    The words a question and a note have most often in common are the
+    ones with the least to say about either, and on a corpus where
+    everybody writes them every candidate shares them equally — so the
+    count was ordering the seeds by noise.
+
+    The shape of it: one note names the question's subject and shares
+    nothing else, six notes match only on three words that half the
+    corpus writes. Under the old count the six won on breadth, three to
+    one, and the walk started among notes about something else.
+
+    Twelve notes, not six, because a corpus this small makes the stopword
+    share meaningless — the project already knows that and it is why the
+    threshold tests build bigger ones. Here it also keeps the subject word
+    out of the stopword list, which is what makes it a seed at all.
+    """
+    notes = {"on_topic": "lamination", "on_the_frame": "the but did"}
+    for n in range(1, 6):
+        notes[f"frame_{n}"] = "the but did"
+    for n in range(1, 6):
+        notes[f"quiet_{n}"] = f"aside{n} nothing"
+    idx = corpus(tmp_path, "distinguishing", **notes)
+
+    seeds = turn("lamination the but did?", idx, answer_from=quoting()).seeds
+
+    assert seeds[0] == "on_topic.md", (
+        f"the note about lamination, not the six matching on the frame: {seeds}"
+    )
+    assert len(seeds) == 7, "and all of them are still seeds: this is a ranking"
+
+
+def test_a_note_matching_more_distinctive_words_still_wins(tmp_path):
+    """Breadth counts, or the weighting would only ever reward one word.
+
+    The distinction from the test above is that those extra shared words
+    are worth something. Two rare words in common is better evidence than
+    one, and the weighting has to say so or a question naming three parts
+    of something would seed on whichever note it mentioned in passing.
+    """
+    idx = corpus(
+        tmp_path,
+        "breadth",
+        broad="quartz feldspar mica",
+        narrow="quartz",
+        elsewhere_one="feldspar alone",
+        elsewhere_two="mica alone",
+    )
+
+    assert turn("quartz feldspar mica?", idx, answer_from=quoting()).seeds == [
+        "broad.md",
+        "elsewhere_one.md",
+        "elsewhere_two.md",
+        "narrow.md",
+    ], (
+        "three rare words beat one. The three that follow tie on a single "
+        "rare word each — quartz, feldspar, mica are each in two notes — "
+        "so they fall to the documented tie-break on the note's own name, "
+        "which is what makes the walk the same however the store is "
+        "ordered."
+    )
+
+
 def test_a_note_is_found_by_its_name_even_when_its_words_are_elsewhere(tmp_path):
     """DECISION: a note's name is one of its words.
 

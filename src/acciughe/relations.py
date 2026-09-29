@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
+from math import log
 
 # The stage an edge came from. Adding a value here changes what the
 # graph is, so it belongs in the derivation version.
@@ -143,6 +144,66 @@ def words(text: str) -> set[str]:
         w for w in _WORD.findall(text.lower())
         if len(w) >= _MIN_TERM_LENGTH
     }
+
+
+def distinguishing(notes: dict[str, str], stop: frozenset[str]) -> dict[str, float]:
+    """How much each term tells one note from another, in this corpus.
+
+    **A term's weight is the log of how few notes hold it.** A term in
+    every note is worth nothing — it cannot separate anything, so a match
+    on it is a coincidence of vocabulary rather than of subject. A term in
+    two notes is worth almost the most there is, because it is close to
+    naming them.
+
+    DECISION: log(N / notes holding the term), replacing a plain count of
+    shared terms, and this reverses an earlier decision that ranked seeds
+    by how many terms they shared. The count was argued on a monolingual
+    corpus where a function word is in most notes and so shared by almost
+    every candidate at once. On a corpus in two languages that argument
+    fails: an Italian corpus's function words are in every Italian note
+    and none of the English ones, so the most widespread word in a
+    131-note Italian-and-English branch reached 38% — below every
+    threshold `stopwords()` sets, which therefore found an empty set and
+    ranked the seeds of "why did the press jam?" by how many notes
+    contained the words *the*, *did* and *why*. Thirty-six seeds came back
+    and the first was a note about a person's history.
+
+    A weight rather than a threshold fixes that without choosing a
+    threshold, which matters because no cutoff is discoverable here: the
+    distribution of how widespread each term is decays smoothly with no
+    cliff in it, so a share set to exclude function words also excludes
+    subject words by degrees and there is no value that is right rather
+    than roughly defensible. Dividing by the term's own frequency instead
+    makes the corpus supply the weights, needs no list of what to leave
+    out, needs no knowledge of which languages are in play, and cannot
+    come back empty.
+
+    A term in every note scores zero rather than being dropped, because
+    `seeds_for` still treats a zero-weight match as a match: it is a weak
+    one, and a question that names a note only by words everybody writes
+    is about that note more than nothing at all.
+    """
+    held: Counter[str] = Counter()
+    for note_id, text in notes.items():
+        held.update(terms(text, stop) | {_name(note_id)})
+
+    total = len(notes)
+    if not total:
+        return {}
+    return {term: log(total / seen) for term, seen in held.items()}
+
+
+def _name(note_id: str) -> str:
+    """A note's own name, as the term a question would use to mean it.
+
+    A note's name is a term like any other, because a question that
+    mentions a note's name is about that note: `tracsis/acquisto/halving.hs`
+    and "halving" are the same reference, and a match that could not see
+    that would seed on whatever else the note happened to share.
+    """
+    base = note_id.rpartition("/")[2]
+    return base.rsplit(".", 1)[0].lower() if "." in base else base.lower()
+
 
 
 def terms(text: str, stop: frozenset[str] = frozenset()) -> set[str]:

@@ -100,3 +100,21 @@ answer, and never answers with hedging where a clean refusal would
 serve. A refusal keeps the nearest notes, marked as not an answer, and
 is inspectable like any other. An answer is given only when the
 evidence supports it.
+
+## Summary
+
+A corpus can also be described rather than questioned. The description is
+counted from the same graph an answer is walked: the subjects it holds,
+the notes most related to, which subjects touch which others, and how
+much of the graph is held together by words nearly every note writes.
+
+It is counted rather than written. A model small enough to run on your
+device cannot compose a description of a corpus, and a description
+carries no citations, so a sentence written about the corpus would be the
+one claim in the command that nothing could check. Every line of a summary
+is a count a reader can go and check, which is also what makes it worth
+having for a corpus too large to read.
+
+Subjects are read from note paths — the first directory, or the note's
+own name at the top of the branch. A corpus that is not organised into
+folders still describes itself, as one subject named after the branch.

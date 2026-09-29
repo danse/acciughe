@@ -12,36 +12,63 @@ so, and the tests say so more precisely.
    against the corpus and against the keyword baseline, asks the ones
    worth measuring, and counts the yield, the answer rate and the citation
    correctness of what the model actually wrote rather than of what
-   survived the guard. It has never been run on a branch that has
-   questions in it, because no branch anyone here has read has any.
+   survived the guard. The judging stage has now run over a real branch —
+   131 notes, half Italian, `~/pub/atland` — and kept 106 of 106 proposed
+   questions, so the yield is not the thing in doubt.
 
-   What is missing is not code. It is a corpus whose notes ask things,
-   and the measurement is then over so few questions that the report says
-   so itself: below ten kept it prints the figures and refuses to call
-   them a comparison. Whether a real branch reaches ten is a fact about
-   the corpus. The first run is also the only thing that can say whether
-   the refusal rate seen on one live turn — a correct sentence with one
-   of its two citations mis-attributed, so the guard dropped both — is a
-   rate or a fact about that turn.
+   What is left is the asking. 106 turns at one to two minutes each is an
+   evening, and nothing in the report will be meaningful until they are
+   run: the answer rate and citation correctness over zero asked
+   questions are both absent figures, not bad ones. The reader is running
+   it on their own corpora.
 
-   A run is now an evening, and built for that: a receipt is written to
-   stderr as it is decided, and stopping it costs the question in flight
-   and nothing before it. What is still missing is a branch to point it
-   at. The reader is running it on their own corpora.
-
-2. **The report carries `ubiquity`.** `_SHARE` is nine tenths and
-   `_MIN_NOTES` is three, and both are judgements about notes nobody here
-   has read. A corpus of a few hundred notes is what they will be read
-   against, and that much is now known: at 0.9 of three hundred notes a
-   function word is found and a subject word is not, where at six notes
-   the two sat in the same band and no threshold could separate them. So
-   the numbers are defensible at this size and the thing left is to check
-   them rather than argue them — `ubiquity` names the words that would
-   move them, which is the only way to find out without guessing. It
-   hangs off the report rather than being asked for separately, since the
-   run is the one thing that produces a corpus worth asking it about.
+2. **`acciughe summarise`.** `product.md` now has a `## Summary` section
+   and nothing implements it. Counted from the same graph an answer is
+   walked — subjects by notes and relations, the notes most related to,
+   which subjects touch which, notes stranded, and the noise line — and
+   never written by the model, because a description carries no citations
+   and a small model cannot compose one. Four of the five parts work on a
+   real branch today; the fifth is the noise line, which reads from the
+   same threshold the seeding fix left open.
 
 ## Not decided
+
+- **What `_SHARE` should be, now that a real branch has said it cannot
+  stand.** Measured on 131 notes in Italian and English: the most
+  widespread word is in 50 of them, 38%, and no word reaches half — let
+  alone nine tenths. So `stopwords()` returns an empty set, and it did so
+  quietly: the derivation carried on with every function word in the
+  vocabulary as a term, and 2730 of the branch's 8515 possible pairs came
+  out related. Seeds were then ranked by how many such words a note shared
+  with the question, so "why did the press jam?" started at a note about
+  somebody's history.
+
+  Ranking by `distinguishing` fixed the seeding without touching the
+  threshold — a term's weight is the log of how few notes hold it, so the
+  corpus supplies the numbers and no cutoff is chosen. It does not touch
+  the graph, where 32% of all pairs being related is still the shape the
+  branch has, and the noise line still cannot be measured.
+
+  No cliff exists to put a threshold on: ranking terms by how widespread
+  they are, and by how many pairs they alone relate, give the *same*
+  ordering, decaying smoothly. Density against the share, measured, is
+  2730 edges at 0.90 and 0.50, 1832 at 0.15, 793 at 0.05. Every one of
+  those is a judgement rather than a reading, which is why the threshold
+  was left alone rather than set from this. What settles it is a reader
+  saying what they want a graph of theirs to look like.
+
+- **Whether a breadth of shared words should outrank one rare word.**
+  Left over from the same work and visible in the measurements: seeds are
+  scored by the *sum* of their shared terms' weights, so a note matching
+  `did`, `the` and `why` (8.40) beats a note that actually contains
+  `press` (6.17). Taking the strongest single term instead puts `press`
+  first, and reads better on the case where the question names something
+  that is there. It throws away breadth, so a question naming three parts
+  of one subject would seed on whichever note mentioned one in passing.
+
+  The sum is in place and the trade is measured rather than guessed at.
+  Frequency alone cannot settle it, because `why` is rare in a corpus of
+  diaries and programming notes and rare is all frequency knows.
 
 - **Whether a linking convention should be a rule.** Counting the words
   that say nothing over the branch closed the multilingual fault, and left

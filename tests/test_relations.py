@@ -16,14 +16,104 @@ until an embedding model is chosen, and is not implemented yet.
 
 import pytest
 
+from math import log
+
 from acciughe.relations import (
     LINK,
     CO_OCCURRENCE,
     link_edges,
     cooccurrence_edges,
+    distinguishing,
     stopwords,
     terms,
 )
+
+
+# --- What a term is worth, decided by the corpus and not by a list ------
+
+def test_a_term_is_worth_the_log_of_how_few_notes_hold_it():
+    """The weight is log(N / notes holding it), and the reason is that it
+    cannot come back empty.
+
+    `stopwords()` asks for words in nine tenths of the notes, and on a
+    131-note branch in Italian and English the most widespread word
+    reached 38% — so it found nothing, returned an empty set, and left
+    every seed ranked by how many function words it shared with the
+    question. "why did the press jam?" produced thirty-six seeds led by a
+    note about somebody's history, because the words *why*, *did* and
+    *the* were in it.
+
+    There is no cliff in that distribution to put a threshold on — how
+    widespread each term is decays smoothly — so a share chosen to drop
+    function words also drops subject words by degrees, and no value is
+    right rather than roughly defensible. Dividing by the term's own
+    frequency instead lets the corpus supply the weights, needs no
+    inventory of what to leave out, and needs no knowledge of which
+    languages are in play.
+    """
+    held = distinguishing({"a.md": "rare", "b.md": "common", "c.md": "common"}, frozenset())
+
+    assert round(held["rare"], 3) == round(log(3), 3)
+    assert round(held["common"], 3) == round(log(1.5), 3)
+    assert held["rare"] > held["common"]
+
+
+def test_a_term_in_every_note_is_worth_nothing_and_stays_in_the_table():
+    """Zero rather than dropped.
+
+    Dropping it would make a caller treat an absence of evidence and a
+    term that positively says nothing as the same thing, and the second
+    is a real measurement: it is what a fully-connected vocabulary looks
+    like. `seeds_for` cannot reach this case — `stopwords()` drops those
+    terms before it is consulted — so it is pinned here, where the
+    function is called directly, rather than asserted through a caller
+    that would never pass it such a term.
+    """
+    every = distinguishing({"a.md": "the and but", "b.md": "the and but"}, frozenset())
+
+    assert {term: every[term] for term in ("the", "and", "but")} == {
+        "the": 0.0,
+        "and": 0.0,
+        "but": 0.0,
+    }
+    assert every["a"] > 0.0, (
+        "and the names beside them are still worth something — a term is "
+        "in the table because it is in the corpus, and whether it is "
+        "worth anything is a separate question this one does not answer"
+    )
+
+
+def test_a_note_is_worth_its_name_as_well_as_its_words():
+    """A question that names a note is about that note.
+
+    `tracsis/acquisto/halving.hs` and "halving" are one reference, and a
+    weighting that could not see that would score such a note on whatever
+    else it happened to share — which is the noise this is here to stop.
+    """
+    held = distinguishing({"halving.md": "nothing alike"}, frozenset())
+
+    assert "halving" in held, "the note's own name is a term it is filed under"
+
+
+def test_the_terms_are_the_ones_the_branch_calls_distinctive():
+    """Passed the stopword set rather than looking it up.
+
+    So that deriving one note's weight needs no global state, and two
+    stages disagreeing about which words are distinctive cannot happen by
+    accident — the same reason `terms()` takes `stop` the same way.
+    """
+    notes = {"a.md": "the rare", "b.md": "the other", "c.md": "the third"}
+    with_stop = distinguishing(notes, frozenset({"the"}))
+    without_stop = distinguishing(notes, frozenset())
+
+    assert "the" not in with_stop
+    assert "the" in without_stop
+    assert "rare" in with_stop and "rare" in without_stop
+
+
+def test_an_empty_corpus_has_no_weights_rather_than_a_division_by_zero():
+    """log(0 / 0) is the shape of this. Nothing is not everything."""
+    assert distinguishing({}, frozenset()) == {}
 
 
 # --- The kinds are distinct and countable ------------------------------
