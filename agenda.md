@@ -7,22 +7,7 @@ so, and the tests say so more precisely.
 
 ## Remaining
 
-1. **Running the evaluation against a real branch.** `acciughe evaluate`
-   is built and tested: it walks the graph for questions, judges each one
-   against the corpus and against the keyword baseline, asks the ones
-   worth measuring, and counts the yield, the answer rate and the citation
-   correctness of what the model actually wrote rather than of what
-   survived the guard. The judging stage has now run over a real branch —
-   131 notes, half Italian, `~/pub/atland` — and kept 106 of 106 proposed
-   questions, so the yield is not the thing in doubt.
-
-   What is left is the asking. 106 turns at one to two minutes each is an
-   evening, and nothing in the report will be meaningful until they are
-   run: the answer rate and citation correctness over zero asked
-   questions are both absent figures, not bad ones. The reader is running
-   it on their own corpora.
-
-2. **`acciughe summarise`.** `product.md` now has a `## Summary` section
+1. **`acciughe summarise`.** `product.md` now has a `## Summary` section
    and nothing implements it. Counted from the same graph an answer is
    walked — subjects by notes and relations, the notes most related to,
    which subjects touch which, notes stranded, and the noise line — and
