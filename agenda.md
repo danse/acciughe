@@ -30,8 +30,25 @@ it is decided rather than moving to a list of what was done.
   neither of them can currently be told. An afternoon against the two to
   three hours a full run takes.
 
+  It has to score every turn's evidence rather than the citations of the
+  answers: of 33 turns the first run completed, one was answered, so a
+  count read off citations would have had one turn to read. Worth is a
+  property of the evidence and the question, so it is there whatever the
+  model did with them.
+
   It also gives the yield figure something to sit beside. Kept is kept, and
   says only that the gates did not fire.
+
+- **What a fault from the model should do to a run.** The first run died
+  on its 34th question with an `HTTPError` 500 from a server that had
+  answered 33, and every attempt it had gathered went with it. That is
+  the decided behaviour, not an oversight: `trial.gather` catches
+  `KeyboardInterrupt` and nothing else, because a report printed over a
+  run that died of a fault would be a short run presented as though the
+  short run were the plan. What the decision does not separate is a model
+  that has *stopped* answering from one that hiccuped once, and from
+  inside the loop the two are the same fault. `product.md` does not
+  decide it either. Thirty-three receipts went with this one.
 
 - **What `_SHARE` should be, now that a real branch has said it cannot
   stand.** Measured on 131 notes in Italian and English: the most
