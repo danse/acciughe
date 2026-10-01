@@ -45,11 +45,12 @@ import json
 import shutil
 import sqlite3
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from acciughe.cli import main, sessions_for, store_for
+from acciughe.cli import main, sessions_for, store_for, trial_run
 from acciughe.index import CURRENT_DERIVATION, Index
 from acciughe.session import Session
 
@@ -89,10 +90,22 @@ class _Model(BaseHTTPRequestHandler):
     """A real socket that is not a model."""
 
     reply: str = ANSWERED
+    fail_after: int | None = None
+    asked: int = 0
 
     def do_POST(self):  # noqa: N802 - the name is BaseHTTPRequestHandler's
         length = int(self.headers["Content-Length"])
         self.rfile.read(length)
+        type(self).asked += 1
+        if type(self).fail_after is not None and (
+            type(self).asked > type(self).fail_after
+        ):
+            # What a model server does under load, and what it did to a
+            # measured run: answered for an hour and then returned 500.
+            self.send_response(500)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         payload = json.dumps({"message": {"content": type(self).reply}}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -107,6 +120,8 @@ class _Model(BaseHTTPRequestHandler):
 @pytest.fixture
 def model():
     _Model.reply = ANSWERED
+    _Model.fail_after = None
+    _Model.asked = 0
     running = HTTPServer(("127.0.0.1", 0), _Model)
     threading.Thread(target=running.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{running.server_port}"
@@ -155,6 +170,37 @@ def questioned(tmp_path):
     (notes / "tray.md").write_text("Damp stock, weighed. See [[roller]].")
     (notes / "roller.md").write_text("Grip is lost by August. See [[paper]].")
     (notes / "paper.md").write_text("Order by bale, not ream.")
+    return notes
+
+
+@pytest.fixture
+def twice_questioned(tmp_path):
+    """Two questions the walk finds, and a verdict that keeps both.
+
+    `questioned` is the right shape for a run of one question and the
+    wrong shape for anything about a run that stopped part way, since
+    there is nothing to have stopped after. Two clusters of three, each
+    built as `questioned` is: a note holding the question's own words,
+    and two notes sharing none of them that the walk reaches by link
+    alone, so the verdict keeps the question and the model has something
+    to be handed.
+
+    The two questions share no word outside their framing, which is what
+    keeps them from being one question asked twice — `propose` strips the
+    framing, and what is left is "press jam" against "mower stall".
+    """
+    notes = tmp_path / "twice"
+    notes.mkdir()
+    (notes / "press.md").write_text(
+        "Fed from a tray. See [[tray]].\nWhy did the press jam?"
+    )
+    (notes / "tray.md").write_text("Damp stock, weighed. See [[roller]].")
+    (notes / "roller.md").write_text("Grip is lost by August.")
+    (notes / "mower.md").write_text(
+        "The blade wants oil.\nWhy does the mower stall?"
+    )
+    (notes / "blade.md").write_text("See [[plug]] for the filter.")
+    (notes / "plug.md").write_text("The plug fouls by September.")
     return notes
 
 
@@ -649,6 +695,99 @@ def test_the_evaluate_command_prints_what_a_run_found(questioned, state, model):
     )
     assert "citations 1 of 2 in the note they name (50%)" in said
     assert "tray.md" in said, "and the invented line is named"
+    assert "of what the model read came through a relation, 3 notes of 4" in (
+        said
+    ), (
+        "and what the model was handed, which no line above it measures. "
+        "Only press.md holds a word of the question; the other three came "
+        "through links, so the graph is not decoration here."
+    )
+
+
+def test_a_run_that_never_got_to_a_question_says_it_was_never_reached(
+    questioned, state, model
+):
+    _Model.reply = PRESSED
+    code, out, _err = run(
+        ["--branch", str(questioned), "--state", str(state),
+         "--host", model, "evaluate", "--limit", "0"]
+    )
+
+def test_a_run_whose_model_faulted_after_a_measurement_says_so_and_prints_it(
+    twice_questioned, state, model
+):
+    """A short report is read as a short run, and only when it says why.
+
+    This is what cost a measured branch its receipts: the model answered
+    thirty-three times and then returned a 500, and the exception unwound
+    past every one of them — thirty-three turns of an evening's work,
+    gone, for a traceback. The run now keeps what it measured and names
+    what stopped it on stderr, so a report over a third of the questions
+    cannot be mistaken for a report over the branch.
+    """
+    _Model.fail_after = 1
+    code, out, err = run(
+        ["--branch", str(twice_questioned), "--state", str(state),
+         "--host", model, "evaluate"]
+    )
+
+    said = err.getvalue()
+    assert code == 130, "a run that did not finish says so in its exit status"
+    assert "of a run that had not finished — the model failed:" in said
+    assert "what it decided:" in said, "and then the report, on stdout"
+    assert "[1]" in said, "the receipt that was decided before the fault"
+    assert "answers " in out.getvalue(), "and the measurement it did make"
+
+
+def test_a_run_whose_model_faulted_on_the_first_question_does_not_print_a_report(
+    questioned, state, model
+):
+    """Nothing measured, nothing to report, and a failure that looks like
+    a finding is the one thing worse.
+
+    A report over no attempts prints "0 of 0 asked", which is the same
+    shape as a real result and the opposite of what happened: the model
+    was down, not the corpus empty. So the fault reaches the reader and
+    no report is written at all.
+    """
+    _Model.fail_after = 0
+
+    with pytest.raises(urllib.error.HTTPError):
+        run(
+            ["--branch", str(questioned), "--state", str(state),
+             "--host", model, "evaluate"]
+        )
+
+
+def test_a_run_stopped_by_its_reader_is_not_blamed_on_the_model(
+    twice_questioned, state, model, monkeypatch
+):
+    """The two ways a run ends short are different things, and a reader
+    looking at the result has to be able to tell them apart: one was
+    their decision and the other was not.
+
+    Nothing here fails — the model answers every question it is asked —
+    so a message blaming it would put a fault in the record that never
+    happened, in the very place a reader goes to find out what went
+    wrong.
+    """
+    answering = trial_run
+
+    def stopped_after_one(*args, **kwargs):
+        for attempt in answering(*args, **kwargs):
+            yield attempt
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr("acciughe.cli.trial_run", stopped_after_one)
+
+    code, _out, err = run(
+        ["--branch", str(twice_questioned), "--state", str(state),
+         "--host", model, "evaluate"]
+    )
+
+    assert code == 130
+    assert "stopped by whoever was watching" in err.getvalue()
+    assert "the model failed" not in err.getvalue()
 
 
 def test_a_run_that_never_got_to_a_question_says_it_was_never_reached(

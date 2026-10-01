@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 from acciughe.evaluation import CitationReport, citation_report
-from acciughe.graph import Reach
+from acciughe.graph import Grounding, Reach
 from acciughe.index import Index, Read
 from acciughe.relations import distinguishing, terms
 from acciughe.session import (
@@ -86,6 +86,59 @@ class Phraser(Protocol):
     ) -> Answer | Components: ...
 
 
+def _grounding(
+    ask: Ask,
+    seeds: list[str],
+    evidence: list[tuple[str, str]],
+    index: Index,
+) -> Grounding | None:
+    """What a turn was given, split by how the question reached it.
+
+    A seed is a note the question's own words reached, and everything
+    else in the evidence came through a relation. Counting the two says
+    what the model was actually handed: a graph can be dense without any
+    of its edges pointing anywhere the question needed, and a bound of
+    five notes filled by seeds is a walk that never consulted it.
+
+    **Nothing here for a turn that read nothing.** A question that
+    matched no note has no evidence and so has no split to report, and
+    counting its absent half as notes that came through the graph would
+    be a turn that consulted nothing being counted as one that reached
+    the graph. `None` for those, and the report leaves them out.
+
+    ``seeds_agree`` compares the two ways of ranking the seeds, the sum
+    of what they share and their single strongest shared term, and says
+    whether they named the same one first. They can disagree, and when
+    they do the ranking chose a note for its breadth over one that
+    matched more precisely. Ranked over every seed and not only the ones
+    that fitted in the evidence: a seed the bound dropped was still a
+    candidate, and whether the ranking would have led with it is a fact
+    about the ranking rather than about how many notes there was room
+    for.
+    """
+    if not evidence:
+        return None
+
+    seeded = set(seeds)
+    in_evidence = {note_id for note_id, _ in evidence}
+    seeded_here = seeded & in_evidence
+
+    def first(weigh) -> str:
+        return min(seeds, key=lambda n: (-weigh(n), n))
+
+    def by_sum(note_id: str) -> float:
+        return ask.worth(note_id, index.note_text(note_id) or "")
+
+    def by_strongest(note_id: str) -> float:
+        return ask.strongest(note_id, index.note_text(note_id) or "")
+
+    return Grounding(
+        seeds=len(seeded_here),
+        through_edges=len(in_evidence - seeded),
+        seeds_agree=first(by_sum) == first(by_strongest),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Turn:
     """Everything a turn did, and everything it decided.
@@ -102,6 +155,7 @@ class Turn:
     refresh: Read = field(default_factory=Read)
     proposed: Answer | Components | None = None
     citations: CitationReport | None = None
+    grounding: Grounding | None = None
 
     @property
     def next_step(self) -> Next:
@@ -161,6 +215,22 @@ class Ask:
         caller seeding a walk needs to.
         """
         return sum(self.weight.get(term, 0.0) for term in self.shared(note_id, text))
+
+    def strongest(self, note_id: str, text: str) -> float:
+        """What the single most distinguishing shared term is worth.
+
+        The other half of `worth`, and the reason the trade between them
+        can be measured rather than argued: a note can outrank another on
+        the sum while holding a weaker best term than the note it beat,
+        which is the whole of the case for ranking on this instead.
+        Comparing the two rankings says whether that ever happens on a
+        branch, which is not a question the branch's own vocabulary can
+        answer in advance.
+        """
+        return max(
+            (self.weight.get(term, 0.0) for term in self.shared(note_id, text)),
+            default=0.0,
+        )
 
 
 def _ask_for(question: str, index: Index) -> Ask:
@@ -383,6 +453,7 @@ def turn(
     reach = index.graph().reach(seeds)
     beyond = reach.reached - set(seeds)
     evidence, withheld = _gather(index, reach, ask)
+    grounding = _grounding(ask, seeds, evidence, index)
 
     proposed: Answer | None = None
     citations: CitationReport | None = None
@@ -442,4 +513,5 @@ def turn(
         refresh=refresh,
         proposed=proposed,
         citations=citations,
+        grounding=grounding,
     )

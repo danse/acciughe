@@ -402,21 +402,64 @@ def test_a_run_that_finishes_says_so(index):
     assert len(gathered.attempts) == 3, "every question the run judged is in it"
 
 
-def test_a_fault_is_not_a_stop(index):
-    """Only an interrupt is caught. Everything else has to reach the reader.
+def test_a_fault_is_not_a_stop_when_there_is_nothing_to_report(index):
+    """An empty run has no measurement to save, so the fault is the output.
 
     A model that has stopped answering, or a branch that cannot be read,
-    is a fault, and a report printed over a run that died of one would be
-    a short run presented as though the short run were the plan. It is
-    the one place where swallowing the error would be a lie rather than
-    a convenience.
+    is a fault. With nothing gathered there is no partial result to
+    qualify and no figure to attach it to, so the only honest thing to
+    hand back is the exception — a report over zero attempts would say
+    "0 of 0 asked" and read as a finding.
     """
 
-    def broken(question, evidence):
+    def broken_before_anything():
         raise ConnectionError("the model went away")
+        yield  # pragma: no cover - the generator body never gets here
 
     with pytest.raises(ConnectionError):
-        list(gather(run(index, broken)))
+        gather(broken_before_anything())
+
+
+def test_a_fault_after_a_measured_question_keeps_what_was_measured(index):
+    """Measured: the model answered 33 times and then returned an
+    `HTTPError` 500, and the exception unwound past every one of them.
+
+    The old rule let anything but an interrupt propagate, on the
+    reasoning that a report printed over a run that died of a fault would
+    be a short run presented as though it were the plan. That reasoning
+    does not hold against a run that says it stopped short and says
+    why: the report renders `finished`, so nothing was being hidden, and
+    all the rule did was throw away real measurements.
+    """
+    quoter = quoting()
+
+    def dies_on_the_second_question(question, evidence):
+        if len(quoter.calls) >= 1:
+            raise ConnectionError("the model went away")
+        return quoter(question, evidence)
+
+    gathered = gather(run(index, dies_on_the_second_question))
+    whole = list(run(index, quoting()))
+
+    assert gathered.finished is False, "it says the run did not finish"
+    assert isinstance(gathered.fault, ConnectionError), "naming what stopped it"
+    assert [a.outcome for a in gathered.attempts] == [
+        a.outcome for a in whole[: len(gathered.attempts)]
+    ], "what it kept is what a run that finished also decided, in order"
+
+
+def test_a_run_stopped_by_its_reader_is_not_a_fault(index):
+    """The two ways a run ends short are different things, and a reader
+    looking at the result has to be able to tell them apart: one was
+    their decision and the other was not."""
+
+    def stopping_at_the_second(question, evidence):
+        raise KeyboardInterrupt
+
+    gathered = gather(run(index, stopping_at_the_second))
+
+    assert gathered.finished is False
+    assert gathered.fault is None, "nobody was told why, because nobody failed"
 
 
 # --- At the size a real corpus is ---------------------------------------

@@ -17,3 +17,9 @@ of these are tests, and none of them survive. If a behaviour is worth
 checking, it is worth a test in `tests/` that stays and is named after
 the sentence of `product.md` it pins. When a guard in the source has no
 test, the fix is to write that test, not to probe it by hand.
+
+Do not commit unless asked to. Leave the work in the tree, uncommitted,
+and say what is there. Committing is the reader's call about when a
+piece of work becomes a checkpoint, and `git log` is the record of what
+they decided a thing was worth — an agent filling it in unasked writes
+that record for them.

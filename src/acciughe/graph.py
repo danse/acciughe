@@ -114,6 +114,50 @@ class Reach:
         return self._depths[note_id]
 
 
+@dataclass(frozen=True, slots=True)
+class Grounding:
+    """What a walk was given, and how the question's own words got there.
+
+    A reach says which notes were found; this says how many of the ones
+    the model was shown were found by the question's own words and how
+    many only a relation reached. It is the shape of the evidence rather
+    than its quality, and it is the one thing the evaluation's other
+    figures cannot see: citation correctness is identical for a turn
+    answered from the note the question was about and one answered from
+    five notes it was never about, since both quote faithfully.
+
+    **Counts, deliberately, and not what the two groups are worth.** The
+    worth split was written here first and is not measurable: `seeds_for`
+    seeds a note exactly when it shares a term with the question, and
+    `Ask.worth` sums over that same shared set, so a note worth anything
+    at all *is* a seed and the worth of the notes that came through a
+    relation is zero by definition rather than by finding. It would have
+    read as a measurement and said the same thing on every corpus,
+    including the ones where the graph earns its keep.
+
+    The counts are not tautological. How many seeds a question has is a
+    fact about the branch, and it competes with the bound on the
+    evidence: a question whose words match forty notes never gets as far
+    as one a relation reached, and that is a finding about the walk
+    rather than an identity.
+
+    ``seeds_agree`` is the breadth question made a measurement. A note
+    can win on the sum of what it shares while holding a weaker single
+    term than the note it beat, and whether that ever happens on a
+    branch is not something the branch's vocabulary says in advance.
+    """
+
+    seeds: int = 0
+    through_edges: int = 0
+    seeds_agree: bool = True
+
+    @property
+    def read(self) -> int:
+        """The notes this turn's grounding covers, however they were
+        reached."""
+        return self.seeds + self.through_edges
+
+
 def _by_depth_then_note(depths: dict[str, int]):
     """Report shortest first, and break a tie by name.
 

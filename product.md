@@ -89,7 +89,12 @@ The graph is measured rather than assumed — its density, how much of
 it is co-occurrence rather than relation, how many notes end up
 connected to nothing — and measured with the agent that will actually
 be used, since a result from a larger model says nothing about a local
-one.
+one. A run measures the walk as well as the model — how much of what it
+was shown came out of the question's own words and how much through a
+relation — because a model quoting faithfully out of five notes the
+question was never about scores the same as one that found the right
+note. A run that stops short keeps what it measured and says what
+stopped it.
 
 ## Refusal
 

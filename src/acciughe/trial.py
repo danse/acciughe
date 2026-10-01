@@ -106,10 +106,19 @@ class Gathered:
     to do. ``finished`` says whether it is the whole run, and a report
     that printed a yield without it would be claiming to have measured
     the branch when it measured the part of it somebody had time for.
+
+    ``fault`` is what stopped it, when something did: a model server
+    that answered and then stopped, or a branch that became unreadable.
+    Carried rather than raised, because by the time it arrives there is
+    a measurement to keep, and raised rather than reported, because a
+    run that stopped is not a run that finished with less in it. `None`
+    for the two ordinary endings — a run that finished, and a run the
+    reader stopped — which is what tells those apart from a fault.
     """
 
     attempts: list[Attempt] = field(default_factory=list)
     finished: bool = True
+    fault: BaseException | None = None
 
 
 def gather(
@@ -118,17 +127,34 @@ def gather(
 ) -> Gathered:
     """Take what a run decides, and survive being stopped.
 
-    An interrupt is the ordinary way this ends, not a failure: the run
-    is a minute per question over a list nobody has counted yet, and the
-    person watching it is the one who decides it has gone on long enough.
-    So it is caught rather than allowed to unwind past everything
-    gathered — the work before the interrupt is not lost work, and a
-    traceback over it would be a way of pretending otherwise.
+    Two ways this ends that are not the run finishing, and they are not
+    the same thing, which is why they are caught differently.
 
-    Anything *other* than an interrupt is left to propagate. A model
-    that is not answering, or a branch that cannot be read, is a fault
-    the reader has to see, and quietly reporting a short run as though
-    the short run were the plan would hide it.
+    An interrupt is the ordinary one: a minute a question over a list
+    nobody has counted yet, and the person watching is the one who
+    decides it has gone on long enough. Nothing is wrong with it, so
+    there is nothing to see.
+
+    A fault is not ordinary, and the temptation is to let it unwind past
+    everything gathered, which is what this did and what cost a measured
+    branch its 33 receipts: the model answered 33 times and then returned
+    an `HTTPError` 500, and the distinction the old rule was drawing —
+    "a report printed over a run that died of one would be a short run
+    presented as though the short run were the plan" — does not hold
+    against a run that *says* it stopped short and says why. The report
+    renders `finished`, so a fault is not hiding anything; all it was
+    doing was throwing away real measurements over an empty traceback.
+
+    So a fault is caught, and carried. Not swallowed: `fault` names it,
+    the run is marked unfinished, and the CLI prints it beside the
+    report, so a reader is told the model failed rather than left to
+    wonder why a branch of 131 notes yielded 33 questions.
+
+    **With nothing gathered, a fault still propagates.** An empty run
+    has nothing to report, so there is no measurement to save and no
+    partial result to qualify — the only honest output is the exception.
+    That is the case the old rule was written for, and it is why the two
+    are handled differently rather than one uniformly.
     """
     gathered: list[Attempt] = []
 
@@ -139,6 +165,10 @@ def gather(
                 on_attempt(attempt)
     except KeyboardInterrupt:
         return Gathered(attempts=gathered, finished=False)
+    except Exception as fault:
+        if not gathered:
+            raise
+        return Gathered(attempts=gathered, finished=False, fault=fault)
 
     return Gathered(attempts=gathered, finished=True)
 
@@ -168,4 +198,5 @@ def _ask(
         verdict=verdict,
         outcome=asked.outcome,
         citations=asked.citations,
+        grounding=asked.grounding,
     )

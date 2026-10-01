@@ -271,9 +271,15 @@ def _evaluate(args, out, err) -> int:
     asked itself among the questions a person asked.
 
     Every receipt is written to stderr as it is decided, and a report
-    goes to stdout whatever happens. So a run watched for an hour shows
-    what it has found so far, and a run stopped at question three still
-    prints the three.
+    goes to stdout however the run ended short. So a run watched for an
+    hour shows what it has found so far, and a run stopped at question
+    three still prints the three — naming on stderr what stopped it, so
+    a short report is read as a short run rather than as the whole of
+    one.
+
+    **Not so when the run has nothing.** A fault before the first
+    question measured propagates, because a report over no attempts says
+    "0 of 0 asked" and would read as a finding rather than as a failure.
     """
     branch = args.branch.resolve()
     if not branch.is_dir():
@@ -302,9 +308,14 @@ def _evaluate(args, out, err) -> int:
     )
 
     if not gathered.finished:
+        why = (
+            f"the model failed: {gathered.fault}"
+            if gathered.fault is not None
+            else "stopped by whoever was watching"
+        )
         err.write(
             f"\nstopped after {count} question{'' if count == 1 else 's'}, "
-            "of a run that had not finished. what it decided:\n"
+            f"of a run that had not finished — {why}. what it decided:\n"
         )
     out.write(
         render_report(report(gathered.attempts, ubiquity(index))) + "\n"

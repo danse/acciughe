@@ -40,6 +40,7 @@ from acciughe.evaluation import (
     report,
     subjects_of,
 )
+from acciughe.graph import Grounding
 from acciughe.index import Index
 from acciughe.keyword import KeywordSearch
 from acciughe.propose import Proposal
@@ -667,6 +668,76 @@ def test_the_report_needs_no_corpus_and_asks_no_model():
     found = report([asked("a?", Answer("x"), 2, 2)])
 
     assert (found.answers, found.citations, found.correct) == (1, 2, 2)
+
+
+# --- What the walk handed over, rather than what the model did ----------
+
+def walked(seeds=0, through=0, agree=True):
+    """An asked question, with a record of how its notes were reached."""
+    return Attempt(
+        proposal=Proposal(question="why?", asked_in="seed.md", answers=["a.md"]),
+        verdict=Verdict(KEPT, "search cannot follow this"),
+        outcome=Answer("x"),
+        citations=CitationReport(1, 1),
+        grounding=Grounding(seeds=seeds, through_edges=through, seeds_agree=agree),
+    )
+
+
+def test_the_report_says_how_much_of_what_the_model_read_came_through_a_relation():
+    """The one figure on the report that is about the walk.
+
+    Everything else counts turns or receipts, and none of them can see
+    whether the graph or the question found the notes: a turn answered
+    from the note the question was about and one answered from five notes
+    it was never about both quote faithfully and score the same. So a run
+    can be perfect on every other figure here and have consulted no graph
+    at all, and nothing above this line would say so.
+
+    Counted over every turn rather than averaged, so a run of two turns
+    is the same number as a run of two hundred: a reader deciding whether
+    a threshold on the words is worth setting is reading a share of what
+    the model saw, and averaging shares would let one long turn speak for
+    forty short ones.
+    """
+    found = report([
+        walked(seeds=5), walked(seeds=3, through=2), walked(seeds=5),
+    ])
+
+    assert (found.read_from_questions, found.read_through_edges) == (13, 2)
+    assert found.edge_share == 2 / 15
+
+
+def test_a_report_over_no_asked_question_measures_the_walk_on_no_turns_at_all():
+    """Silence rather than a zero.
+
+    A run that asked nothing consulted nothing, and `0 of 0` divided is
+    not a share of anything — the same unearned figure the corpus line
+    refuses to print.
+    """
+    found = report([])
+
+    assert found.grounded == []
+    assert found.read_through_edges == 0
+    assert found.edge_share == 0.0, "and the reader is not shown it"
+
+
+def test_the_report_counts_the_turns_the_two_seed_rankings_disagreed_on():
+    """The breadth question as a count, settled by one run.
+
+    A seed can win on the sum of what it shares while the note it beat
+    holds a stronger single term, and whether that happens on a branch is
+    not something the branch's vocabulary says in advance. Counting the
+    turns where it did is what lets the question come off the agenda: a
+    run where the count is zero is a run where the sum cost nothing, and
+    a run where it is not zero is a run where the trade is real and its
+    cost is known.
+    """
+    found = report([
+        walked(agree=True), walked(agree=False), walked(agree=False),
+    ])
+
+    assert found.breadth_agreed == 1
+    assert len(found.grounded) == 3, "and the disagreement is a share of the turns"
 
 
 # --- Describing the corpus ----------------------------------------------

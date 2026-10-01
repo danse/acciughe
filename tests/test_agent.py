@@ -479,6 +479,137 @@ def test_the_notes_read_are_the_same_however_the_store_is_ordered(tmp_path):
     assert len(first) == MAX_EVIDENCE
 
 
+# --- What the model was handed, counted by how it was reached ------------
+
+def test_the_notes_read_are_split_by_whether_the_question_named_them(answerable):
+    """The measurement the evaluation had no way to make before this.
+
+    Every other figure a turn reports is about the model's receipts, and
+    none of them can see this: a turn answered from the note the question
+    was about and one answered from five notes it was never about both
+    quote faithfully, so both score the same. Whether the walk found
+    those notes or the question's own words did is invisible from the
+    outside, and it is the thing that says whether the graph is load
+    bearing.
+
+    `answerable` is the shape: one note holds two of the question's
+    words and the other two are its neighbours, holding none. So one note
+    came from the question and two came from the links, and a report that
+    counted three notes without the split would be counting evidence and
+    calling it reach.
+    """
+    result = turn(ASKING, answerable, answer_from=recording([]))
+
+    assert result.grounding.seeds == 1, "seed.md, which holds the question's words"
+    assert result.grounding.through_edges == 2, (
+        "one.md and two.md, which the walk reached and the question did not"
+    )
+    assert result.grounding.read == len(result.evidence), (
+        "and the two halves are the whole of it, so a report that sums "
+        "them cannot be quietly measuring something narrower"
+    )
+
+
+def test_a_turn_that_read_nothing_reports_no_grounding(branch_of_real_notes):
+    """No split exists, so none is reported.
+
+    A question about something unwritten reads no notes at all. Counting
+    its absent half as notes that came through the graph would be a walk
+    that consulted nothing being recorded as one that reached the graph,
+    which is the one direction this figure cannot be wrong in without
+    claiming the graph did work it did not do.
+    """
+    result = turn(
+        "what happened in Lisbon?", branch_of_real_notes, answer_from=recording([])
+    )
+
+    assert result.evidence == []
+    assert result.grounding is None
+
+
+def _breadth(tmp_path, name, **notes):
+    """A branch of ten notes, sized so a rare word can outweigh two
+    common ones.
+
+    `distinguishing` weighs a term by the log of how few notes hold it,
+    so on ten notes a word in two is worth log 5 and a word in one is
+    worth log 10. Two common words together beat one rare word — 4.83
+    against 2.30 — while either of them alone loses to it. That gap is
+    the whole of the breadth question, and it is a gap in the arithmetic
+    rather than in the corpus, which is what makes a fixture for it
+    possible at all.
+    """
+    padding = [
+        f"kayak paddle river{n}" for n in range(1, 4)
+    ] + [f"beehive frames harvest{n}" for n in range(4, 6)]
+    return corpus(tmp_path, name, **notes,
+                  **{f"pad{n}": text for n, text in enumerate(padding)})
+
+
+def test_a_seed_that_wins_on_breadth_and_loses_on_its_best_word_is_a_disagreement(
+    tmp_path,
+):
+    """`seeds_agree` is the breadth question made a measurement.
+
+    The argument for ranking seeds on their single strongest shared term
+    is that a note can outrank a better match on the sum: three terms
+    worth log 5 each come to more than one term worth log 10, and the
+    note holding only the rare word matched more precisely. Whether that
+    ever happens on a branch is not something the branch's vocabulary
+    says in advance, so a run records it per turn rather than assuming
+    either way.
+
+    `broad` shares quartz, feldspar and mica, each in two notes; `deep`
+    shares obsidian, in one. The sum ranks broad first at 4.83 against
+    2.30, and the strongest single term ranks deep first at log 10
+    against log 5. The two disagree, and the turn says so.
+    """
+    idx = _breadth(
+        tmp_path,
+        "breadth_wins",
+        broad="quartz feldspar mica",
+        one="quartz",
+        two="feldspar",
+        three="mica",
+        deep="obsidian",
+    )
+
+    result = turn("quartz feldspar mica obsidian?", idx, answer_from=recording([]))
+
+    assert result.seeds[0] == "broad.md", (
+        "the sum ranks it first, which is the ranking under test"
+    )
+    assert result.grounding.seeds_agree is False, (
+        "and the strongest-term ranking would have led with deep.md, so "
+        "the run records that the sum cost this turn its first note"
+    )
+
+
+def test_a_seed_the_two_rankings_agree_about_is_not_a_disagreement(tmp_path):
+    """The common case, and the one that has to be distinguishable from
+    the other.
+
+    Every rare word here is in two notes, so the note sharing three of
+    them also holds the strongest single term — it wins on both
+    rankings. A run where no turn disagrees is a run where the sum has
+    cost nothing here, and reporting that as a count is what lets the
+    question come off the agenda rather than being argued forever.
+    """
+    idx = _breadth(
+        tmp_path,
+        "breadth_agrees",
+        broad="quartz feldspar mica",
+        one="quartz",
+        two="feldspar",
+        three="mica",
+    )
+
+    result = turn("quartz feldspar mica?", idx, answer_from=recording([]))
+
+    assert result.seeds[0] == "broad.md"
+    assert result.grounding.seeds_agree is True
+
+
 def test_a_note_is_found_by_its_name_even_when_its_words_are_elsewhere(tmp_path):
     """DECISION: a note's name is one of its words.
 

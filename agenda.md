@@ -9,47 +9,6 @@ it is decided rather than moving to a list of what was done.
 
 ## Not decided
 
-- **What the evaluation cannot see, and the one count that would.** Run
-  against a real branch of 131 notes, all three of its figures turned out
-  to be about something other than the graph. Yield was 105 of 105 — and
-  would have been whatever the questions were, because all three refusals
-  in `question_verdict` pass any span ending in `?`. The answer rate is
-  about the guard. Citation correctness checks that a note exists and that
-  the quote is inside it, and its own docstring says the rest is not asked
-  there and cannot be. A model quoting faithfully out of whatever it is
-  handed scores 100%, so the figure cannot tell *found the right note*
-  from *quoted the wrong note faithfully* — which is the failure the
-  evidence ordering fixed, and which it would have reported as a pass.
-
-  The missing number is whether the evidence held a note the question was
-  actually about. It is already computable and costs nothing: `Ask.worth()`
-  scores a note against a question, and a turn already holds the question
-  and every note it was handed. The best worth in the evidence, or the
-  share of citations landing on notes worth more than zero, moves when
-  edge derivation moves — which is what the two items below need, and what
-  neither of them can currently be told. An afternoon against the two to
-  three hours a full run takes.
-
-  It has to score every turn's evidence rather than the citations of the
-  answers: of 33 turns the first run completed, one was answered, so a
-  count read off citations would have had one turn to read. Worth is a
-  property of the evidence and the question, so it is there whatever the
-  model did with them.
-
-  It also gives the yield figure something to sit beside. Kept is kept, and
-  says only that the gates did not fire.
-
-- **What a fault from the model should do to a run.** The first run died
-  on its 34th question with an `HTTPError` 500 from a server that had
-  answered 33, and every attempt it had gathered went with it. That is
-  the decided behaviour, not an oversight: `trial.gather` catches
-  `KeyboardInterrupt` and nothing else, because a report printed over a
-  run that died of a fault would be a short run presented as though the
-  short run were the plan. What the decision does not separate is a model
-  that has *stopped* answering from one that hiccuped once, and from
-  inside the loop the two are the same fault. `product.md` does not
-  decide it either. Thirty-three receipts went with this one.
-
 - **What `_SHARE` should be, now that a real branch has said it cannot
   stand.** Measured on 131 notes in Italian and English: the most
   widespread word is in 50 of them, 38%, and no word reaches half — let
@@ -81,7 +40,14 @@ it is decided rather than moving to a list of what was done.
   vocabulary everybody shares. So the threshold is no longer a judgement
   buried in a derivation — it is the last line of a description a reader
   runs, and the numbers above it are qualified by it on the same screen.
-  Whoever decides `_SHARE` now has somewhere to see what it cost.
+
+  **A second place to see it, and the one that may decide it.** `evaluate`
+  ends with what share of the notes the model was shown came through a
+  relation rather than out of the question's own words. That is not the
+  density of the graph but the part of it a turn ever reads, and it moves
+  with the threshold in the way the density does not: a share near zero
+  means a question's own words filled the evidence every time and no
+  threshold on the words would have changed a single note the model read.
 
   No cliff exists to put a threshold on: ranking terms by how widespread
   they are, and by how many pairs they alone relate, give the *same*
@@ -89,7 +55,8 @@ it is decided rather than moving to a list of what was done.
   2730 edges at 0.90 and 0.50, 1832 at 0.15, 793 at 0.05. Every one of
   those is a judgement rather than a reading, which is why the threshold
   was left alone rather than set from this. What settles it is a reader
-  saying what they want a graph of theirs to look like.
+  saying what they want a graph of theirs to look like — or the share,
+  which says whether the choice ever reached the model.
 
 - **Whether a breadth of shared words should outrank one rare word.**
   Left over from the same work and visible in the measurements: a note is
@@ -101,12 +68,18 @@ it is decided rather than moving to a list of what was done.
   of one subject would seed on whichever note mentioned one in passing.
 
   The sum is in place, for the seeds and for the evidence alike, and the
-  trade is measured rather than guessed at. Frequency alone cannot settle
-  it, because `why` is rare in a corpus of diaries and programming notes
-  and rare is all frequency knows. What has changed since this was
-  written is that the ranking now reaches the notes the model reads,
-  which makes the trade worth more than it looked: it is not only which
-  note the walk starts from.
+  trade is now counted rather than argued. **Every turn records whether
+  the two rankings named the same note first** — the sum, and
+  `Ask.strongest` — and `evaluate` says how many turns they differed on.
+  They can only differ where a seed wins on the sum while the seed it beat
+  holds a stronger single term, so each turn that differs is a question
+  the sum answered one way and the alternative would answer the other.
+
+  Frequency alone cannot settle this, because `why` is rare in a corpus
+  of diaries and programming notes and rare is all frequency knows. A
+  count of disagreeing turns settles it in the other direction: zero is
+  the sum having cost nothing on that branch, whatever the argument said
+  in the abstract.
 
 - **Whether a linking convention should be a rule.** Counting the words
   that say nothing over the branch closed the multilingual fault, and left
@@ -155,9 +128,10 @@ it is decided rather than moving to a list of what was done.
   the two stages that exist, first, is therefore the cheaper order of
   operations — and the only one that could show the stage is not needed.
   It is not to be pulled until the evaluation says the existing stages
-  need help. *The evaluation has now been run on a real branch, and it
-  cannot say: its figures are about the guard and the model, not about
-  the graph. The count at the top of this list is what would.*
+  need help. *The evaluation has now been run on a real branch, and the
+  first run could not say: every figure it had was about the guard and
+  the model rather than about the graph. It says now, and the two stages
+  are what it measures.*
 
   Settled either way: **the model identity belongs in the derivation
   version.** Vectors baked into the graph depend on which model produced

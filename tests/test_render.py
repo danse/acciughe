@@ -56,6 +56,7 @@ from acciughe.evaluation import (
     Verdict,
     report,
 )
+from acciughe.graph import Grounding
 from acciughe.index import Index, Read
 from acciughe.propose import Proposal
 from acciughe.render import (
@@ -940,6 +941,28 @@ def _answered(question="q?", **over):
     return Attempt(**fields)
 
 
+def _grounded(seeds=5, through=0, agree=True):
+    """A grounding shaped like a real turn.
+
+    All five notes the model was shown matched the question's own words
+    and none came through a relation, which is the shape that made the
+    missing measurement worth adding: the evidence is ordered by
+    relevance, so the seeds fill it before a relation is reached, and a
+    report that does not say so cannot tell a walk that consulted the
+    graph from one that never needed to.
+    """
+    return Grounding(seeds=seeds, through_edges=through, seeds_agree=agree)
+
+
+def _grounding_lines(reported):
+    """The lines a report renders about the walk, and nothing else."""
+    return [
+        line
+        for line in render_report(reported).split("\n")
+        if "through a relation" in line or "strongest single word" in line
+    ]
+
+
 def _corpus_line(reported):
     """The line a corpus measurement renders to, and nothing else.
 
@@ -979,6 +1002,96 @@ def test_a_report_carries_the_corpus_measurement_alongside_the_run():
     )
     assert "1100 of 2730" in render_report(measured)
     assert "che in 49, per in 50" in render_report(measured)
+
+
+def test_a_report_says_what_share_of_the_evidence_came_through_a_relation():
+    """The figure the agenda said was missing, and the one that can settle
+    `_SHARE` on a branch rather than describing it.
+
+    Every other line on the report is about the model. Citation
+    correctness cannot tell a turn answered from the note the question was
+    about from one answered from five notes it was never about — both
+    quote faithfully, both score 100% — so a run can be perfect on
+    every figure here and have consulted no graph at all.
+    """
+    shown = _grounding_lines(report([_answered(grounding=_grounded())]))
+
+    assert len(shown) == 2, "a share, and the breadth comparison"
+    assert shown[0] == "  nothing the model read came through a relation", (
+        "said rather than omitted, because a share of zero is the finding "
+        "rather than an absence of one: the evidence was full of notes "
+        "the question named and none a relation had reached"
+    )
+
+
+def test_a_report_says_when_the_relations_carried_the_evidence():
+    """The other side of the same line, and the case it exists to make
+    distinguishable from the first.
+
+    Most of what the model was shown came through a relation rather than
+    out of the question's own words, so the co-occurrence stage is load
+    bearing on this branch and a threshold on the words is what decides
+    how much of the model's evidence is worth having. Read beside the
+    share of zero, it is the difference between a graph that was
+    consulted and one that was not.
+
+    The two counts are spoken rather than left as a percentage alone: a
+    share of 50% over three notes and one over 150 are different
+    findings, and a reader deciding whether a threshold matters cannot
+    tell them apart from the share.
+    """
+    edges = report([
+        _answered(grounding=_grounded(seeds=3, through=7)),
+        _answered(grounding=_grounded(seeds=3, through=7)),
+    ])
+    line = _grounding_lines(edges)[0]
+
+    assert line == (
+        "  70% of what the model read came through a relation, "
+        "14 notes of 20"
+    ), (
+        "counted over every turn rather than averaged, so a run of two "
+        "turns is the same number as a run of two hundred"
+    )
+
+
+def test_a_report_says_when_the_sum_and_the_strongest_word_disagree():
+    """The breadth question as a count rather than an argument.
+
+    The two rankings differ only where a seed wins on the sum of what it
+    shares while the seed it beat holds a stronger single term. Each turn
+    that disagrees is a question the ranking answered one way and the
+    other ranking would answer the other, which is what the agenda has
+    been carrying as a judgement.
+    """
+    split = report([
+        _answered(grounding=_grounded(agree=True)),
+        _answered(grounding=_grounded(agree=False)),
+        _answered(grounding=_grounded(agree=True)),
+    ])
+
+    assert "named the same seed in 2 of 3 turns" in _grounding_lines(split)[1]
+    assert "the sum is what chose the other 1" in _grounding_lines(split)[1]
+
+
+def test_a_report_that_never_split_the_two_rankings_says_the_sum_cost_nothing():
+    never = report([
+        _answered(grounding=_grounded(agree=True)),
+        _answered(grounding=_grounded(agree=True)),
+    ])
+
+    assert "named the same seed every time" in _grounding_lines(never)[1]
+    assert "the sum cost nothing on this run" in _grounding_lines(never)[1]
+
+
+def test_a_report_over_no_asked_question_mentions_the_walk_not_at_all():
+    """Silence rather than a zero, because the walk was never consulted.
+
+    A report over zero attempts has no grounding to count, and printing
+    `0%` beside nothing would be the same unearned perfect score the
+    corpus line refuses to print.
+    """
+    assert _grounding_lines(report([])) == []
 
 
 def test_a_measurement_that_found_no_word_says_so_and_prints_no_rate():

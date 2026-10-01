@@ -29,6 +29,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 
+from acciughe.graph import Grounding
 from acciughe.index import Index
 from acciughe.keyword import KeywordSearch
 from acciughe.propose import Proposal
@@ -574,6 +575,7 @@ class Attempt:
     verdict: Verdict
     outcome: Answer | Refusal | Components | None = None
     citations: CitationReport | None = None
+    grounding: Grounding | None = None
 
     def __post_init__(self) -> None:
         """A question the verdict dropped cannot also have been asked.
@@ -636,6 +638,20 @@ class Report:
     cannot guess is worth more than the convenience of not passing an
     argument. `trial.run` holds the index, so the caller measures and
     hands it over.
+
+    ``grounded`` is the one set of counts here about the walk rather
+    than about the model, and it is kept per turn rather than summed on
+    the way in because the sums are not the measurement. How much of what
+    the model was shown came out of the question's own words and how
+    much through a relation is what says whether the graph earned its
+    keep on this branch — and whether the breadth of a note's shared
+    words ever cost it its place against one rarer word is a comparison
+    between two rankings that has to be made per turn, since a turn can
+    disagree and the next can agree. Turns that read nothing are absent
+    from it rather than counted as walks that reached the graph.
+
+    Every other figure here could come out the same on a run whose
+    evidence was five notes the question was never about.
     """
 
     proposed: int = 0
@@ -649,6 +665,56 @@ class Report:
     uncorroborated: int = 0
     fabricated: list[Finding] = field(default_factory=list)
     ubiquity: Ubiquity | None = None
+    grounded: list[Grounding] = field(default_factory=list)
+
+    @property
+    def read_from_questions(self) -> int:
+        """Notes the model was shown, over every turn, that the question's
+        own words found.
+
+        The seeds. Every other note in an evidence list arrived through a
+        relation, so this and `read_through_edges` are the two halves of
+        what the walk handed over and neither is the whole of it.
+        """
+        return sum(g.seeds for g in self.grounded)
+
+    @property
+    def read_through_edges(self) -> int:
+        """Notes the model was shown that only a relation reached."""
+        return sum(g.through_edges for g in self.grounded)
+
+    @property
+    def edge_share(self) -> float:
+        """How much of what the model was shown came through a relation.
+
+        The share that says whether the co-occurrence stage is load
+        bearing on this branch at all. Near zero and the graph's density
+        is decoration — the relevance ranking fills the evidence from the
+        question's own words before a relation is reached, so thinning
+        the graph would remove nothing the model was reading. Most of it
+        and the stage is doing the work, and how much of it is worth
+        doing is what a threshold on the words would decide.
+
+        Zero when nothing was shown at all, which is silence rather than
+        a division by nothing: `grounded` is empty then, and the report
+        prints no line for it at all.
+        """
+        read = self.read_from_questions + self.read_through_edges
+        return self.read_through_edges / read if read else 0.0
+
+    @property
+    def breadth_agreed(self) -> int:
+        """Turns where the sum of a seed's shared words and its single
+        strongest shared term named the same note first.
+
+        The breadth question as a count. The two rankings differ only
+        where a note wins on the sum while the note it beat holds a
+        stronger term, and every such turn is a question the ranking
+        answered one way and the other ranking would answer the other.
+        A run where they never differ is a run where the sum has cost
+        nothing here, whatever the argument said in the abstract.
+        """
+        return sum(1 for g in self.grounded if g.seeds_agree)
 
     @property
     def measured(self) -> int:
@@ -747,4 +813,5 @@ def report(attempts: Iterable[Attempt], ubiquity: Ubiquity | None = None) -> Rep
         uncorroborated=sum(1 for a in checked if a.citations.uncorroborated),
         fabricated=[f for a in checked for f in a.citations.fabricated],
         ubiquity=ubiquity,
+        grounded=[a.grounding for a in attempts if a.grounding is not None],
     )

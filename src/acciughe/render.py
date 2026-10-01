@@ -405,7 +405,60 @@ def render_report(report: Report) -> str:
     lines += _citations_of(report)
     if report.ubiquity is not None:
         lines.append(_ubiquity_of(report.ubiquity))
+    lines += _grounding_of(report)
     return "\n".join(line for line in lines if line)
+
+
+def _grounding_of(report: Report) -> list[str]:
+    """What the walk gave the model, and whether the graph earned it.
+
+    **Last, and the only figures here about the walk rather than the
+    model.** Everything above counts turns or receipts; these count what
+    the turn was handed, which is the thing no other line here can see. A
+    run can cite every quote correctly out of five notes the question was
+    never about, and it is the same run that prints 100%.
+
+    The edge share is the one that can settle a question the agenda has
+    been carrying, so it is spoken as a share rather than left as two
+    numbers to divide. Near zero says the co-occurrence stage did no work
+    here and a threshold on the words would take nothing away; most of it
+    says the stage is load bearing and the threshold is what decides how
+    much of the model's evidence is worth having.
+
+    Said rather than omitted when it is zero, which is the finding: a run
+    that read five notes a turn and every one of them matched the
+    question's own words is a run where the graph was not consulted, and
+    that reads as a null result here rather than as silence.
+    """
+    if not report.grounded:
+        return []
+
+    through = report.read_through_edges
+    read = through + report.read_from_questions
+    lines = [
+        "  nothing the model read came through a relation"
+        if not through
+        else f"  {_fraction(through / read)} of what the model read came "
+        f"through a relation, {through} notes of {read}"
+    ]
+
+    turns = len(report.grounded)
+    agreed = report.breadth_agreed
+    if agreed == turns:
+        lines.append(
+            "  ranking seeds by the sum of what they share and by their "
+            "strongest single word named the same seed every time, so the "
+            "sum cost nothing on this run"
+        )
+    else:
+        lines.append(
+            "  ranking seeds by the sum of what they share and by their "
+            f"strongest single word named the same seed in {agreed} of "
+            f"{turns} turns, and the sum is what chose the other "
+            f"{turns - agreed}"
+        )
+
+    return lines
 
 
 def render_summary(profile: Profile) -> str:
