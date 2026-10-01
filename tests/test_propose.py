@@ -23,10 +23,18 @@ the tests here end where that one begins.
 
 import pytest
 
+from collections import Counter
+
 from acciughe.evaluation import KEPT, question_verdict
 from acciughe.index import Index
 from acciughe.keyword import KeywordSearch
-from acciughe.propose import DEFAULT_DEPTH, Proposal, proposals, questions_in
+from acciughe.propose import (
+    DEFAULT_DEPTH,
+    DEFAULT_PER_NOTE,
+    Proposal,
+    proposals,
+    questions_in,
+)
 
 # --- What counts as a question ------------------------------------------
 
@@ -58,6 +66,44 @@ def test_a_list_item_that_asks_is_a_question_without_its_bullet():
     assert questions_in("- Does the same apply upstairs?") == [
         "Does the same apply upstairs?"
     ]
+
+
+def test_a_bullet_that_follows_a_sentence_is_not_part_of_the_question():
+    """The bullet is at the start of a line the corpus wrote, so stripping
+    it there was not enough — a bullet after a sentence end is at the
+    start of nothing the split saw, and it came through with the
+    question. `- quanti giorni saranno passati ?` is a question with a
+    list marker in it, and the marker is the part nobody asked."""
+    assert questions_in("Ragusa is in Sicily. - the electric bike there?") == [
+        "the electric bike there?"
+    ]
+
+
+def test_a_comment_marker_is_not_part_of_the_question_either():
+    """`--` opens a line comment, and a corpus may hold code as well as
+    prose. A run of markers is one marker, stripped for the same reason
+    the bullet is: it is not part of what was asked. The pipe in
+    Haddock's `-- |` is left alone on purpose — it is also a guard in a
+    pattern match, and no proposal of a code file is worth that."""
+    assert questions_in("-- Any fusion?") == ["Any fusion?"]
+
+
+def test_a_minus_before_a_number_is_not_a_marker():
+    """A pattern loose enough to strip `--` is loose enough to strip the
+    sign off `-5`, and a question is lifted rather than rewritten. This
+    is the case that keeps the pattern's lookahead there."""
+    assert questions_in("-5 and what about the rest?") == [
+        "-5 and what about the rest?"
+    ]
+
+
+def test_a_question_mark_on_its_own_is_not_a_question():
+    """A question mark is what makes a span a question, not what makes it
+    one. A span with nothing in it but punctuation asks nothing, and
+    without this a note that once held a question there proposed `??` and
+    spent a turn of the evaluation on it."""
+    assert questions_in("and then what? ?") == ["and then what?"]
+    assert questions_in("??") == []
 
 
 def test_only_the_asking_part_of_a_line_is_the_question():
@@ -202,6 +248,77 @@ def test_proposals_are_in_a_fixed_order_whatever_the_store_holds(index):
     the next run, and an evaluation over a moving set measures the
     moving."""
     assert proposals(index) == proposals(index)
+
+
+# --- How much one note may say ------------------------------------------
+
+@pytest.fixture
+def crowded(tmp_path):
+    """A branch where one note asks many questions and the rest ask one.
+
+    Measured on a real branch of 131 notes: the questions came from 32
+    notes, and the largest contributor held 35 of 105 -- a third of the
+    set, from one note of continuous writing. Nothing was wrong with any
+    of those 35, which is the problem: a set that is a third one note
+    measures that note.
+
+    Every note links to another, which is all `proposals` needs beyond a
+    question, so what is being varied here is the questions and not the
+    graph.
+    """
+    notes = tmp_path / "crowded"
+    notes.mkdir()
+    (notes / "diary.md").write_text(
+        "See [[hall]] and [[stairs]].\n"
+        "Why did the printer reverse?\n"
+        "Why did the stairs jam?\n"
+        "Why did the queue clear?\n"
+        "Why did the duplex fail?\n"
+        "Why did the spooler restart?\n"
+    )
+    for name, asked in (
+        ("hall", "Why is the spooler talking?"),
+        ("stairs", "What does the duplex need?"),
+        ("border", "Where does the printer jam?"),
+    ):
+        (notes / f"{name}.md").write_text(
+            f"See [[diary]]. The machine talks about the spooler.\n{asked}\n"
+        )
+    idx = Index(branch=notes, store_path=tmp_path / "graph.sqlite3")
+    idx.refresh()
+    return idx
+
+
+def test_a_note_puts_at_most_so_many_questions_into_the_set(crowded):
+    """The figure a report reads would otherwise move when one note grew
+    and not at all when the graph changed."""
+    per_note = Counter(p.asked_in for p in proposals(crowded))
+
+    assert per_note["diary.md"] == DEFAULT_PER_NOTE
+    assert max(per_note.values()) <= DEFAULT_PER_NOTE
+
+
+def test_the_bound_picks_which_of_a_note_s_questions_are_proposed(crowded):
+    """The first it asks, in the order it asks them. Ranking them by a
+    proxy for how question-shaped they look would spend the note's few
+    slots on whichever guess was wrong."""
+    proposed = [p.question for p in proposals(crowded) if p.asked_in == "diary.md"]
+
+    assert proposed == [
+        "Why did the printer reverse?",
+        "Why did the stairs jam?",
+        "Why did the queue clear?",
+    ]
+
+
+def test_the_bound_is_on_the_set_and_not_on_the_note(crowded):
+    """A caller asking for every question in the branch gets every
+    question. What the bound takes away is the walk's, not the note's."""
+    bounded = {p.question for p in proposals(crowded)}
+    unbounded = {p.question for p in proposals(crowded, per_note=None)}
+
+    assert "Why did the spooler restart?" not in bounded
+    assert "Why did the spooler restart?" in unbounded
 
 
 # --- How far the walk goes ----------------------------------------------

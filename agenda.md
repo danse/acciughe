@@ -9,6 +9,30 @@ it is decided rather than moving to a list of what was done.
 
 ## Not decided
 
+- **What the evaluation cannot see, and the one count that would.** Run
+  against a real branch of 131 notes, all three of its figures turned out
+  to be about something other than the graph. Yield was 105 of 105 — and
+  would have been whatever the questions were, because all three refusals
+  in `question_verdict` pass any span ending in `?`. The answer rate is
+  about the guard. Citation correctness checks that a note exists and that
+  the quote is inside it, and its own docstring says the rest is not asked
+  there and cannot be. A model quoting faithfully out of whatever it is
+  handed scores 100%, so the figure cannot tell *found the right note*
+  from *quoted the wrong note faithfully* — which is the failure the
+  evidence ordering fixed, and which it would have reported as a pass.
+
+  The missing number is whether the evidence held a note the question was
+  actually about. It is already computable and costs nothing: `Ask.worth()`
+  scores a note against a question, and a turn already holds the question
+  and every note it was handed. The best worth in the evidence, or the
+  share of citations landing on notes worth more than zero, moves when
+  edge derivation moves — which is what the two items below need, and what
+  neither of them can currently be told. An afternoon against the two to
+  three hours a full run takes.
+
+  It also gives the yield figure something to sit beside. Kept is kept, and
+  says only that the gates did not fire.
+
 - **What `_SHARE` should be, now that a real branch has said it cannot
   stand.** Measured on 131 notes in Italian and English: the most
   widespread word is in 50 of them, 38%, and no word reaches half — let
@@ -114,8 +138,9 @@ it is decided rather than moving to a list of what was done.
   the two stages that exist, first, is therefore the cheaper order of
   operations — and the only one that could show the stage is not needed.
   It is not to be pulled until the evaluation says the existing stages
-  need help. *The evaluation is what unblocks it, and the questions it
-  needs cannot be written without the reader.*
+  need help. *The evaluation has now been run on a real branch, and it
+  cannot say: its figures are about the guard and the model, not about
+  the graph. The count at the top of this list is what would.*
 
   Settled either way: **the model identity belongs in the derivation
   version.** Vectors baked into the graph depend on which model produced
