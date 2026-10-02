@@ -333,11 +333,13 @@ def test_the_walk_stops_at_its_bound(index):
 
 
 def test_a_note_beyond_the_bound_does_not_answer(index, tmp_path):
-    # No "and" before the link. `queue` and `far` both name `duplex`, so
-    # that name is a term they share; add the conjunction and it is a
-    # second, and the two are within a word of an edge. In four notes the
-    # conjunction is in three of them, which is not yet ubiquitous, so it
-    # is a term — the branch being four notes, not the walk being wrong.
+    # `far` links to `duplex`, and so does `queue`, and that is the only
+    # term the two of them share — one is not enough to be an edge, so
+    # the walk reaches `far` from `duplex` at the second hop rather than
+    # from `queue` at the first. The prose in between is a list of words
+    # a note is written with and not words it has an opinion about; any
+    # of them landing in both notes would make the second term and put
+    # `far` in the shallow set, which is the thing under test.
     far = tmp_path / "notes" / "far.md"
     far.write_text("A note at the far end of the corridor, linking [[duplex]].")
     index.refresh()
@@ -409,16 +411,15 @@ def test_a_question_the_baseline_can_follow_is_left_to_the_verdict(tmp_path):
     question — which is what makes the set better than one built only
     from questions that were going to be kept.
 
-    Nine padding notes, and the reason is the same as everywhere else in
-    this suite: the question is *about* clearing a job, and both answers
-    restate it, so its three content words are in every note of a
-    three-note branch. The count calls them ubiquitous and the baseline
-    refuses to search on them — which is the right answer to "which notes
-    use these words", asked of three notes, and the wrong basis for a
-    verdict about whether the baseline can follow a question. The padding
-    states no link and shares no word with the three notes, so the walk
-    still reaches the same two answers and the only thing that changes is
-    how many notes the words are in.
+    Three notes, and no padding, and that is the change from the last
+    time this was written. Both answers restate the question, so
+    *clearing*, *job* and *long* are in all three, and the counting that
+    used to drop a word every note writes had them out of the baseline's
+    search on a three-note branch: nine unrelated notes were needed to
+    stop a share of the corpus from swallowing them. A language's list
+    holds words of English that say nothing and holds none of these three
+    at any size of corpus, so the baseline searches on the question's own
+    words here and finds what the walk found.
     """
     branch = tmp_path / "notes"
     branch.mkdir()
@@ -432,18 +433,6 @@ def test_a_question_the_baseline_can_follow_is_left_to_the_verdict(tmp_path):
     (branch / "duplex.md").write_text(
         "Clearing the job takes a second pass, which is a long time.\n"
     )
-    for name, text in [
-        ("printer.md", "printer lab duplex jams cartridge"),
-        ("printer2.md", "printer lab duplex toner cartridge"),
-        ("allotment.md", "allotment butt water moved committee"),
-        ("allotment2.md", "allotment fence water moved shed"),
-        ("ferry.md", "ferry timetable harbour crossing cancelled"),
-        ("ferry2.md", "ferry harbour crossing tide delayed"),
-        ("beehive.md", "beehive frames harvest lavender honey"),
-        ("beehive2.md", "beehive frames harvest lavender swarm"),
-        ("kayak.md", "kayak paddle river rapids practice"),
-    ]:
-        (branch / name).write_text(text)
     index = Index(branch=branch, store_path=tmp_path / "graph.sqlite3")
     index.refresh()
     proposed = proposals(index)[0]

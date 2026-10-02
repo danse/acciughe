@@ -17,7 +17,11 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
+from functools import cache
 from math import log
+
+from stopwordsiso import has_lang, langs
+from stopwordsiso import stopwords as stopwordsiso
 
 # The stage an edge came from. Adding a value here changes what the
 # graph is, so it belongs in the derivation version.
@@ -39,61 +43,25 @@ _MIN_SHARED_TERMS = 2
 # contentful word in one or two letters.
 _MIN_TERM_LENGTH = 3
 
-# DECISION: a term in this share of the notes says nothing about any of
-# them, and is dropped. This replaces a fixed list of English stopwords,
-# which was patched rather than derived and could not work at all on a
-# corpus in another language.
+# DECISION: a language counts as written in this corpus when its stopword
+# list accounts for at least this fraction of the best one. A ratio and not
+# a share of the corpus's words, because the two are measured against
+# different things: a fixed fraction of the vocabulary would be a threshold
+# about how much grammar a corpus has, and would drop a language written
+# briefly in a corpus dominated by another.
 #
-# Corpus statistics rather than a fixed list, because whether a word is
-# meaningless is a fact about *these* notes, not about a language. "The"
-# is the commonest word in English and the most informative one in a
-# corpus about typography. A fixed list cannot know that; a count can.
+# Half, and the gap it sits in is wide enough not to need care: measured
+# over the corpus's whole vocabulary, an English branch scores a quarter
+# against English and about a twentieth against everything else, and a
+# mixed Italian-and-English one scores a fifth each way. Half of the best
+# is between those and far above the noise.
 #
-# And language independent for the case that forces it: a genuinely mixed
-# corpus has no one list to apply. Every note contributes its words and
-# the ones everybody wrote fall out on their own.
-#
-# Nine tenths, and high is the safe direction to be wrong in: a term left
-# in costs an edge, a term dropped loses the one relation it held, and
-# nothing inside the graph can say which of the two mattered.
-#
-# The number is high because of what these words are. A function word is
-# written in nearly every note — "the" is in all of them or the corpus is
-# not written in English — so a share near one finds them all. A content
-# word is not, however common its subject: a corpus of one subject has
-# that subject in every note, and dropping it at 0.9 is the right answer
-# anyway, because a word in every note relates every note to every other
-# and the relation it draws is the whole corpus.
-#
-# Half was tried and measured against six-note fixtures, and at 0.5 both
-# are dropped, because at 0.5 a corpus of six notes cannot tell a function
-# word from a subject and neither can any threshold. That measurement said
-# more about the fixtures than about the number, and it is recorded here
-# because the same argument does not apply at the size a real corpus is:
-# 0.9 of three hundred notes is two hundred and seventy, and no subject
-# word is in two hundred and seventy of somebody's notes. The two
-# distributions that overlap at six notes are far apart at three hundred,
-# which means the number is no longer the binding constraint — the floor
-# below is, and 0.9 is only high enough to be safe.
-#
-# A parameter, and `evaluation.ubiquity()` measures what a choice costs
-# on a real branch rather than taking this comment's word for it.
-_SHARE = 0.9
-
-# Below this many notes nothing is dropped, because a count needs a note
-# that does *not* share the word to be a count at all. Two notes agree on
-# everything or disagree on everything, so "the" and "corpus" are
-# indistinguishable at any threshold and guessing deletes the subject.
-# Three is the smallest corpus that can distinguish sharing from not.
-#
-# A floor against a fixture, and negligible at a real corpus: three notes
-# is nothing next to the hundreds a branch holds, so at the size this
-# runs at the floor is not what stops a word being dropped. It stays
-# because the tests are small, and a corpus too small to measure is not
-# protected from its own grammar by any threshold.
-#
-# A parameter, because three is a judgement about somebody else's notes.
-_MIN_NOTES = 3
+# The direction to be wrong in is the safe one. A language missed here
+# leaves its function words in the graph as terms, which costs edges and
+# puts the words back where the count used to; a language wrongly included
+# drops a word that was doing something, which is the mistake that loses a
+# relation.
+_DETECTION_RATIO = 2
 
 # Letters and digits, in any script. An ASCII pattern does not merely lose
 # a word it cannot read — it shortens the one it is in the middle of, so
@@ -133,9 +101,10 @@ def _ordered(a: str, b: str) -> tuple[str, str]:
 def words(text: str) -> set[str]:
     """Every word in a note that could carry meaning, in any script.
 
-    No list of what to leave out. Whether a word distinguishes anything
-    is a fact about the corpus and not about the word, so filtering is
-    `stopwords()`'s work and happens over the whole branch.
+    No list of what to leave out. Whether a word says anything is a fact
+    about the language a note is written in, so filtering is
+    `stopwords()`'s work and happens over the whole branch, which is
+    what says which languages are in play.
 
     A set rather than a count: how often a word is repeated inside one
     note is not evidence that the note is about that word.
@@ -163,20 +132,21 @@ def distinguishing(notes: dict[str, str], stop: frozenset[str]) -> dict[str, flo
     fails: an Italian corpus's function words are in every Italian note
     and none of the English ones, so the most widespread word in a
     131-note Italian-and-English branch reached 38% — below every
-    threshold `stopwords()` sets, which therefore found an empty set and
-    ranked the seeds of "why did the press jam?" by how many notes
-    contained the words *the*, *did* and *why*. Thirty-six seeds came back
-    and the first was a note about a person's history.
+    threshold `stopwords()` could have set, which therefore found an
+    empty set and ranked the seeds of "why did the press jam?" by how many
+    notes contained the words *the*, *did* and *why*. Thirty-six seeds came
+    back and the first was a note about a person's history. Language lists
+    closed that particular hole — *the* and *did* are in the English list
+    whatever the corpus looks like — and the weighting stayed, because a
+    word in every note still weighs nothing and the lists cannot know
+    which of the reader's own words those are.
 
-    A weight rather than a threshold fixes that without choosing a
-    threshold, which matters because no cutoff is discoverable here: the
-    distribution of how widespread each term is decays smoothly with no
-    cliff in it, so a share set to exclude function words also excludes
-    subject words by degrees and there is no value that is right rather
-    than roughly defensible. Dividing by the term's own frequency instead
-    makes the corpus supply the weights, needs no list of what to leave
-    out, needs no knowledge of which languages are in play, and cannot
-    come back empty.
+    A weight rather than a threshold, because no cutoff is discoverable
+    here: the distribution of how widespread each term is decays smoothly
+    with no cliff in it, so a share set to exclude a habit of writing also
+    excludes subject words by degrees and there is no value that is right
+    rather than roughly defensible. Dividing by the term's own frequency
+    instead makes the corpus supply the weights and cannot come back empty.
 
     A term in every note scores zero rather than being dropped, because
     `seeds_for` still treats a zero-weight match as a match: it is a weak
@@ -207,7 +177,8 @@ def _name(note_id: str) -> str:
 
 
 def terms(text: str, stop: frozenset[str] = frozenset()) -> set[str]:
-    """A note's distinctive terms: its words, less the ubiquitous ones.
+    """A note's distinctive terms: its words, less what its language says
+    nothing with.
 
     ``stop`` is the corpus's, passed in rather than looked up, so that
     deriving one note's terms needs no global state and two stages that
@@ -216,34 +187,88 @@ def terms(text: str, stop: frozenset[str] = frozenset()) -> set[str]:
     return words(text) - stop
 
 
-def stopwords(
-    corpus: dict[str, str],
-    share: float = _SHARE,
-    floor: int = _MIN_NOTES,
-) -> frozenset[str]:
-    """The words this corpus writes in every note, and which mean nothing.
+@cache
+def _stopword_lists() -> dict[str, frozenset[str]]:
+    """Every language's stopwords, read once.
 
-    Counted rather than listed, so it needs no inventory of languages and
-    cannot be wrong about a corpus nobody anticipated. Two notes sharing
-    only these have shared grammar, not subject, and any relation drawn
-    from that is the walk reaching everywhere and finding nothing.
-
-    ``share`` is how many notes a word has to be in to stop counting, and
-    ``floor`` is how many notes a corpus needs before any word is
-    dropped. Both are judgements about a corpus nobody here has seen,
-    which is why they are parameters: a reader who disagrees can ask for
-    the other number rather than having to trust this one.
-    `evaluation.ubiquity()` reports what the choice costs on a branch.
+    Fifty-eight lists, and the corpus is read once per language otherwise;
+    a refresh of a real branch would rather read them once.
     """
-    if not corpus or share > 1.0 or len(corpus) < floor:
+    return {
+        lang: frozenset(stopwordsiso(lang))
+        for lang in langs()
+        if has_lang(lang)
+    }
+
+
+def _detect_languages(corpus: dict[str, str]) -> frozenset[str]:
+    """Which languages these notes are written in.
+
+    Scored by how much of the corpus each language's list accounts for,
+    which is the one measurement that says a language rather than guessing
+    it: an English corpus covers a quarter of its words with the English
+    list and about a twentieth with any other, so the languages that clear
+    half of the best score are the ones actually being written.
+
+    A stopword list as the detector rather than a keyword list beside it.
+    A keyword list says what marks a language, and every one of them is a
+    word on somebody's own stopword list — `di` is Italian and also the
+    French past tense of `dire`, `die` is German and also an English verb.
+    Asking which list best accounts for the words is the same question
+    without the ambiguity, and it needs no list kept in step with the
+    other one.
+
+    Both halves of a mixed corpus are found, because the union of two
+    languages is still best explained by each of them.
+
+    Nothing is detected in a corpus whose words no list accounts for — a
+    branch of nouns, or one word — and that is the honest answer rather
+    than a default: a guess would strip words from a corpus in a language
+    nobody thought to enumerate.
+    """
+    vocabulary = words(" ".join(corpus.values()))
+    if not vocabulary:
         return frozenset()
 
-    counts: Counter[str] = Counter()
-    for text in corpus.values():
-        counts.update(words(text))
-
+    scores = {
+        lang: len(vocabulary & every) / len(vocabulary)
+        for lang, every in _stopword_lists().items()
+    }
+    best = max(scores.values())
+    if not best:
+        return frozenset()
     return frozenset(
-        word for word, seen in counts.items() if seen >= share * len(corpus)
+        lang for lang, score in scores.items() if score >= best / _DETECTION_RATIO
+    )
+
+
+def stopwords(corpus: dict[str, str]) -> frozenset[str]:
+    """The words these notes are written with and mean nothing by.
+
+    The languages the corpus is written in are detected and their lists
+    unioned, so an Italian corpus drops `della` and an English one drops
+    `the`, and a corpus in both drops both.
+
+    Replaces a count over the corpus, which asked what share of the notes
+    write a word and needed a threshold to answer it. That threshold was
+    undecidable — measured on a 131-note Italian-and-English branch no word
+    reached half the notes, so the count found nothing to drop and the
+    function words went into the graph as terms — and it needed a floor as
+    well, because below three notes a count cannot tell a function word
+    from the one subject the notes agree on. A list is a fact about a
+    language, so it needs neither number, and `agenda.md` no longer has a
+    share to settle.
+
+    Length-filtered to `_MIN_TERM_LENGTH` because a one or two letter word
+    is not a term by `words()`'s own rule, and a stopword set that
+    disagreed with it would make `terms()` depend on which set it was
+    given.
+    """
+    found: set[str] = set()
+    for lang in _detect_languages(corpus):
+        found |= _stopword_lists()[lang]
+    return frozenset(
+        word for word in found if len(word) >= _MIN_TERM_LENGTH
     )
 
 
@@ -345,10 +370,10 @@ def cooccurrence_edges(
     weights, which keeps a stage that only depends on the two notes it
     is comparing.
 
-    ``stop`` is the corpus's ubiquitous words, from `stopwords()` over
-    the whole branch, passed in rather than looked up. So the *pair* is
-    still local, and a caller deriving one note's edges against the rest
-    of the corpus passes the list explicitly instead of the code
+    ``stop`` is the corpus's words that say nothing, from `stopwords()`
+    over the whole branch, passed in rather than looked up. So the *pair*
+    is still local, and a caller deriving one note's edges against the
+    rest of the corpus passes the list explicitly instead of the code
     reaching into global state it does not name.
     """
     term_sets = {note_id: terms(text, stop) for note_id, text in notes.items()}

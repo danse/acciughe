@@ -6,6 +6,9 @@ requires-python = ">=3.11"
 name = "acciughe"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "stopwordsiso" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -13,6 +16,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "stopwordsiso", specifier = ">=0.7.1" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]
@@ -76,4 +80,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313", size = 1636369, upload-time = "2026-06-19T10:58:32.857Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
+]
+
+[[package]]
+name = "stopwordsiso"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/f6/19709db9bff8c20a8d2c99dd657dbd51efcd76a2d43608c468307d503eea/stopwordsiso-0.7.1.tar.gz", hash = "sha256:10c1cf5df1c31646175178b0b13f0bd2e622384f4a3554986ed3acf85d73c9f0", size = 73352, upload-time = "2026-07-07T11:22:02.644Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/5f/2d2a6013c7afe7c06d39e208749cc669dd404ed521f7f603265e13758b04/stopwordsiso-0.7.1-py3-none-any.whl", hash = "sha256:e23edcffca952f98cd26f54a5c56f93b2fa435c88d3ee60f3beffb4c44279380", size = 74890, upload-time = "2026-07-07T11:22:01.435Z" },
 ]

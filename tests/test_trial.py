@@ -25,6 +25,7 @@ import pytest
 
 from acciughe.evaluation import DROPPED, KEPT, report
 from acciughe.index import Index
+from acciughe.relations import CO_OCCURRENCE
 from acciughe.session import Answer, Citation, Components
 from acciughe.trial import gather, run
 
@@ -467,21 +468,31 @@ def test_a_run_stopped_by_its_reader_is_not_a_fault(index):
 def _branch_of(n, tmp_path, every=5):
     """`n` notes, a question in every fifth, each linked to two others.
 
-    **The words are all distinct on purpose, because a corpus that shares
-    them collapses.** `cooccurrence_edges` compares every pair, and two
-    notes sharing two terms are an edge — so a fixture whose notes all
-    said "see" and "log" and "the" would not be three hundred notes with
-    three hundred opinions, it would be one blob that every question is
-    supported by. Each note here has one word of its own, and its only
-    shared words are the two it links to, which is what a real branch of
-    notes looks like: stated relations, and few accidental ones.
+    **A note's terms are its own name and the two it links to, and
+    nothing else in the branch repeats.** `cooccurrence_edges` compares
+    every pair, and two notes sharing two terms are an edge — so a
+    fixture whose notes all said "log" and "entry" and "clerk" would not
+    be three hundred notes with three hundred opinions, it would be one
+    blob that every question is supported by. Every one of the 44850
+    pairs, and a timing test over a blob measuring something no reader
+    will ever run. So the frame here is function words, which every
+    language's list drops, and the only content a note carries is its own
+    name — which is what a real branch of notes looks like: stated
+    relations, and few accidental ones.
 
-    Which means the ubiquitous words here are "see" and "log" and "the",
-    in every note — and they are dropped. That is the thing hundreds of
-    notes settles that three could not: at three, "the" and "the subject"
-    sit in the same share and no threshold separates them, and the
-    reasoning recorded against `_SHARE` is a small-corpus argument. At
-    three hundred, 90% is 270 notes, and a subject word does not get there.
+    **That the frame is grammar is the whole reason this fixture is
+    sparse, and it is a narrower reason than the counting it replaced
+    gave.** A share of the corpus drops a frame once the corpus is big
+    enough to reach it, so the same fixture used to open every note with
+    "Log entry {name} was written by the {name} clerk" and stay sparse
+    only because three hundred notes is ninety per cent of itself. A list
+    drops grammar at any size and holds nothing else. So the words a
+    reader's own habit supplies — a house name, a phrase every note of a
+    branch opens with — are no longer dropped by the derivation at all,
+    and a branch like that is now one complete graph. That is the cost of
+    taking the words from lists rather than from the corpus, taken
+    knowingly: the lists know what a language says nothing with and no
+    list knows what a writer keeps saying.
     """
     root = tmp_path / f"corpus{n}"
     root.mkdir()
@@ -492,13 +503,38 @@ def _branch_of(n, tmp_path, every=5):
         after = f"n{(i + 7) % n:04d}"
         body = (
             f"See [[{next_one}]]. See [[{after}]]. "
-            f"Log entry {name} was written by the {name} clerk."
+            f"There is nothing in {name} but {name}."
         )
         if i % every == 0:
-            body += f"\nWhy was the {name} clerk late?"
+            body += f"\nWhy is there nothing in {name}?"
         (root / f"{name}.md").write_text(body)
 
     return root
+
+
+def test_a_branch_of_this_shape_is_related_only_by_the_links_it_states(tmp_path):
+    """The fixture above is a branch only while its notes are not one blob.
+
+    `cooccurrence_edges` turns two shared terms into an edge, so a corpus
+    whose notes share a vocabulary is a complete graph at any size, and
+    every figure measured over it — the proposal count, the elapsed time —
+    becomes a measurement of the blob instead of of three hundred notes.
+    Its docstring claims to avoid that; this is what holds it to it, at
+    the size where a share of the corpus used to reach the frame and the
+    size where it did not.
+    """
+    for n in (15, 300):
+        index = Index(
+            branch=_branch_of(n, tmp_path),
+            store_path=tmp_path / "state" / f"{n}.sqlite3",
+        )
+        index.refresh()
+
+        assert index.graph(kind=CO_OCCURRENCE).edges() == [], (
+            f"at {n} notes every pair of them shares a vocabulary, so the "
+            "corpus is one blob and what is measured over it is not the "
+            "shape the two tests below claim to compare"
+        )
 
 
 def test_a_corpus_of_hundreds_of_notes_is_proposed_and_judged_in_time(tmp_path):

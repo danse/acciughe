@@ -45,7 +45,6 @@ from acciughe.evaluation import (
     graph_metrics,
     profile,
     report,
-    ubiquity,
 )
 from acciughe.index import Index
 from acciughe.model import DEFAULT_HOST, DEFAULT_MODEL, Ollama, phrasing
@@ -317,9 +316,7 @@ def _evaluate(args, out, err) -> int:
             f"\nstopped after {count} question{'' if count == 1 else 's'}, "
             f"of a run that had not finished — {why}. what it decided:\n"
         )
-    out.write(
-        render_report(report(gathered.attempts, ubiquity(index))) + "\n"
-    )
+    out.write(render_report(report(gathered.attempts)) + "\n")
     return 0 if gathered.finished else 130
 
 

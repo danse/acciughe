@@ -110,8 +110,7 @@ evidence supports it.
 
 A corpus can also be described rather than questioned. The description is
 counted from the same graph an answer is walked: the subjects it holds,
-the notes most related to, which subjects touch which others, and how
-much of the graph is held together by words nearly every note writes.
+the notes most related to, and which subjects touch which others.
 
 It is counted rather than written. A model small enough to run on your
 device cannot compose a description of a corpus, and a description

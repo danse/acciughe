@@ -468,36 +468,45 @@ def test_deleting_the_store_loses_nothing(tmp_path):
 
 # --- What a word means is a fact about the whole branch -----------------
 
-# Which words say nothing is counted over every note, so a change to that
+# Which words say nothing is read over every note, so a change to that
 # set invalidates relations whose two endpoints did not move. That is the
 # one case where "refreshing only redoes what changed" has to be read
 # carefully rather than literally: the change is in what a word *means*,
 # and the notes that changed are not the notes whose relations did.
 
 def kettle_branch(index):
-    """Three notes in which "kettle" is a subject.
+    """Two English notes related by a word English does not stop.
 
-    Two of the three have it, so it is in two thirds of the branch rather
-    than nearly all of it, and it is a term: `early` and `middle` share it
-    and "loud", so there is an edge between them. `late` is about a window
-    and is the note the tests below edit — giving it a "kettle" is what
-    makes the word ubiquitous and the edge wrong.
+    `early` and `middle` share "die" and "quarry" and nothing else, so the
+    edge between them rests on one word that is German's most common and
+    no list of English has. It is a term here, because a branch of two
+    notes does not yet look German enough for the detector to say so, and
+    `german` is the note the tests below write: adding it is what settles
+    the question and takes the edge away.
     """
-    write(index.branch, "early.txt", "a kettle is loud")
-    write(index.branch, "middle.txt", "a kettle is loud too")
-    write(index.branch, "late.txt", "a bedroom window is old")
+    write(
+        index.branch, "early.txt",
+        "the die was cast beside the quarry and the road to the yard "
+        "where the carts were kept while the timber was stacked",
+    )
+    write(
+        index.branch, "middle.txt",
+        "a die beside a quarry on the street past the depot while the rain "
+        "came down and the lamps were lit",
+    )
 
 
-def test_a_word_that_becomes_ubiquitous_re_derives_edges_it_did_not_touch(index):
+def test_a_word_set_that_moves_re_derives_edges_it_did_not_touch(index):
     """Refreshing only redoes what changed, so an answer is never given
     from a graph that does not match the branch.
 
-    The changed note here is `late`, and the edge that must go is between
-    `early` and `middle` — two notes nobody touched. What changed is what
-    "kettle" means: in two notes of three it is a subject and it holds the
-    edge together, and in all three it distinguishes nothing.
+    The changed note here is `german`, and the edge that must go is
+    between `early` and `middle` — two notes nobody touched. What changed
+    is what "die" means: on a branch of two notes it is a word no
+    language claims, and with a German note beside it the word is that
+    language's own and is dropped.
 
-    A refresh that re-derived only `late` would leave the edge in the
+    A refresh that re-derived only `german` would leave the edge in the
     store and answer from a relation the branch no longer supports, which
     is the fault the sentence forbids.
     """
@@ -505,7 +514,10 @@ def test_a_word_that_becomes_ubiquitous_re_derives_edges_it_did_not_touch(index)
     index.refresh()
     assert ("early.txt", "middle.txt", 2.0) in index.graph(kind=CO_OCCURRENCE).edges()
 
-    write(index.branch, "late.txt", "a bedroom window next to the kettle")
+    write(
+        index.branch, "german.txt",
+        "der die und ist nicht mit dem haus von der mühle",
+    )
 
     index.refresh()
 
@@ -516,9 +528,9 @@ def test_an_unchanged_word_set_re_derives_nothing(index):
     """The common case, and the reason the change is noticed by
     fingerprint rather than by redoing everything.
 
-    Adding a note to a corpus does not usually make a common word
-    uncommon — here it is not even in most of them. So the set is the
-    same, and the notes whose text was not read keep the edges they had.
+    Adding a note to a corpus does not usually change which languages it
+    is written in — here it does not even try. So the set is the same,
+    and the notes whose text was not read keep the edges they had.
     """
     kettle_branch(index)
     index.refresh()
@@ -571,18 +583,24 @@ def test_a_rebuild_records_the_words_it_used_too(index):
 
 
 def test_the_words_a_turn_would_use_are_the_ones_the_branch_writes_now(index):
-    """The ubiquitous set is derived from the notes, so reading it must
-    not be cached past a refresh that changed them.
+    """The words that say nothing are derived from the notes, so reading
+    them must not be cached past a refresh that changed them.
 
-    Caching it would be the natural way to make it cheap, and it would be
-    wrong: a caller holding the set from before an edit would seed a walk
-    with words the branch no longer writes in every note.
+    Caching them would be the natural way to make it cheap, and it would
+    be wrong: a caller holding the set from before an edit would seed a
+    walk with the words a language now claims and the branch no longer
+    writes as a subject.
     """
     kettle_branch(index)
     index.refresh()
-    assert index.stopwords() == frozenset()
+    assert "die" not in index.stopwords(), (
+        "two notes are not yet a branch written in German"
+    )
 
-    write(index.branch, "late.txt", "a bedroom window next to the kettle")
+    write(
+        index.branch, "german.txt",
+        "der die und ist nicht mit dem haus von der mühle",
+    )
     index.refresh()
 
-    assert index.stopwords() == frozenset({"kettle"})
+    assert "die" in index.stopwords(), "and the branch is now written in two"

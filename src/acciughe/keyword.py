@@ -83,10 +83,11 @@ class KeywordSearch:
             )
         self._stamped = stamped
         self._unreadable = unreadable
-        # The ubiquitous words are a fact about these notes, so they
-        # change exactly when the notes do. Recomputing them per query
-        # would re-tokenise the whole branch for every question in a
-        # run, and a run is a long list of questions.
+        # The words that say nothing are a fact about these notes and the
+        # languages they are written in, so they change exactly when the
+        # notes do. Recomputing them per query would re-tokenise the whole
+        # branch for every question in a run, and a run is a long list of
+        # questions.
         self._stop = None
 
     @property
@@ -123,17 +124,19 @@ class KeywordSearch:
         return [row[0] for row in self._conn.execute(sql, params)]
 
     def stopwords(self) -> frozenset[str]:
-        """The words this branch writes in every note.
+        """The words these notes' own languages say nothing with.
 
-        Counted here rather than imported from the graph, because a
-        baseline that read the index's list would inherit the index's
-        mistakes. The words are the same and the reasoning is not shared,
-        which is the arrangement that lets the two disagree about a
-        question — the point of the comparison.
+        Read here rather than imported from the graph, because a baseline
+        that read the index's list would inherit the index's mistakes. The
+        words are the same and the reading is not shared, which is the
+        arrangement that lets the two disagree about a question — the point
+        of the comparison. They disagree whenever the two are looking at
+        different notes, and an index that has not been refreshed since is
+        looking at an older branch.
 
-        Counted once per state of the branch rather than once per query:
-        the count cannot change between two queries, and a run asks a
-        long list of them.
+        Read once per state of the branch rather than once per query: the
+        answer cannot change between two queries, and a run asks a long
+        list of them.
         """
         if self._stop is not None:
             return self._stop
@@ -147,8 +150,8 @@ class KeywordSearch:
     def _terms(query: str, stop: frozenset[str]) -> list[str]:
         """The words of a query that carry any meaning, in order, unrepeated.
 
-        A query of nothing but ubiquitous words returns nothing rather
-        than everything, or "what is it" would return the corpus.
+        A query of nothing but words that say nothing returns nothing
+        rather than everything, or "what is it" would return the corpus.
 
         The same tokenizer as the graph's, so a word dropped here is a
         word dropped there; which words are dropped is this corpus's own

@@ -115,11 +115,11 @@ def branch_of_real_notes(tmp_path):
 
     This is what the questions about *absence* need and `answerable` is
     not: a question about Lisbon has to match nothing, and on a
-    three-note branch it matches "about" instead, because two of three
-    notes is not yet ubiquitous. The refusal it produces is not wrong —
-    the question's words really are in the notes — but it is not the
-    refusal under test, and testing it there would mean the branch
-    decides the outcome rather than the graph.
+    three-note branch it matched "about" instead, because two notes in
+    three was not yet enough for the counting to call "about" a word
+    every note has. A language's list calls it one at any size, so the
+    refusal a question about Lisbon gets is now the refusal under test
+    rather than an accident of how few notes there are.
     """
     notes = {
         "printer": "the printer jams on duplex about the cartridge.",
@@ -260,19 +260,20 @@ def test_one_word_nobody_else_writes_outranks_four_words_everybody_writes(
     corpus writes. Under the old count the six won on breadth, three to
     one, and the walk started among notes about something else.
 
-    Twelve notes, not six, because a corpus this small makes the stopword
-    share meaningless — the project already knows that and it is why the
-    threshold tests build bigger ones. Here it also keeps the subject word
-    out of the stopword list, which is what makes it a seed at all.
+    The frame is three words no language's list knows, because a
+    stopword list drops the frame before a seed is ever chosen and there
+    would be nothing left to rank. What a corpus really writes in every
+    note and no list can know is a habit — a house name, a project's own
+    word — and that is the thing this has to be about.
     """
-    notes = {"on_topic": "lamination", "on_the_frame": "the but did"}
+    notes = {"on_topic": "lamination", "on_the_frame": "kappa lambda mu"}
     for n in range(1, 6):
-        notes[f"frame_{n}"] = "the but did"
+        notes[f"frame_{n}"] = "kappa lambda mu"
     for n in range(1, 6):
-        notes[f"quiet_{n}"] = f"aside{n} nothing"
+        notes[f"quiet_{n}"] = f"aside{n}"
     idx = corpus(tmp_path, "distinguishing", **notes)
 
-    seeds = turn("lamination the but did?", idx, answer_from=quoting()).seeds
+    seeds = turn("lamination kappa lambda mu?", idx, answer_from=quoting()).seeds
 
     assert seeds[0] == "on_topic.md", (
         f"the note about lamination, not the six matching on the frame: {seeds}"
@@ -334,26 +335,29 @@ def recording(seen):
 def _crowded(tmp_path):
     """A branch where the graph reaches further than the question does.
 
-    Six notes hold the question's two common words, so all six are seeds
-    and all six sit at depth zero, which is the state the graph on a real
-    branch is nearly always in — 41 relations a note there, and 39 seeds
-    tied at the same depth for one question.
+    Six notes hold "wrong", the one word the question shares with all of
+    them and no language's list knows, so all six are seeds and all six
+    sit at depth zero — the state the graph on a real branch is nearly
+    always in, 41 relations a note there and 39 seeds tied at the same
+    depth for one question.
 
-    `zebra` is the only note about lamination and sorts last among the
-    seeds, so an ordering that fell to the note's own name would put the
-    five alphabetically first in front of the model and the one note the
-    question was about behind them, past the bound of five.
+    `zebra` is the only note about lamination and sorts last on the count
+    of what it shares, because it shares one word with the question while
+    the other six each share a word five notes share. An ordering that
+    fell to the note's own name would put the five alphabetically first
+    in front of the model and the one note the question was about behind
+    them, past the bound of five.
     """
     return corpus(
         tmp_path,
         "crowded",
         zebra="lamination",
-        allotment="the allotment wants water with the hose",
-        bus="the bus wants oil with the filter",
-        ferry="the ferry wants rope with the knot",
-        hall="the hall wants chairs with the tables",
-        piano="the piano wants felt with the strings",
-        shed="the shed wants paint with the brush. See [[apple]] and [[birch]].",
+        allotment="the allotment went wrong with the hose",
+        bus="the bus went wrong with the filter",
+        ferry="the ferry went wrong with the knot",
+        hall="the hall went wrong with the tables",
+        piano="the piano went wrong with the strings",
+        shed="the shed went wrong with the brush. See [[apple]] and [[birch]].",
         apple="apple harvest orchard bins",
         birch="birch saplings hedge gaps",
         **{f"pad{n}": text for n, text in enumerate([
@@ -396,8 +400,8 @@ def test_the_model_reads_the_notes_the_question_is_about(tmp_path):
         "ferry.md",
         "hall.md",
     ], (
-        "the note about lamination first, then the five that share only the "
-        "question's common words, in name order because they tie. Under "
+        "the note about lamination first, then the five that share only "
+        "'wrong' with the question, in name order because they tie. Under "
         "the old ordering these were the same five without zebra.md, "
         "which fell past the bound."
     )

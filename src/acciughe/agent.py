@@ -270,9 +270,9 @@ def seeds_for(ask: Ask, index: Index) -> list[str]:
     however the store happens to be ordered.
     """
     if not ask.terms:
-        # Every word was one this corpus writes in every note, so there
-        # is nothing to match on. A question made only of them is not
-        # about this corpus.
+        # Every word was one this corpus's own languages say nothing
+        # with, so there is nothing to match on. A question made only of
+        # them is not about this corpus.
         return []
 
     scored: list[tuple[float, str]] = []

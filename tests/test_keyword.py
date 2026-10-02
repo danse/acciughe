@@ -25,14 +25,16 @@ from acciughe.keyword import KeywordSearch
 
 @pytest.fixture
 def branch(tmp_path):
-    """Twelve notes, because the filtering this baseline does is measured
-    over the whole branch and a three-note branch cannot express it.
+    """Twelve notes, because the filtering this baseline does is read over
+    the whole branch and a three-note branch cannot express it.
 
     "The" is in every note here, which is what makes
     `test_search_ignores_a_word_in_every_note` a claim rather than a
-    tautology: at three notes "the" was in two of three, which is a
+    tautology: at three notes "the" was in two of three, which was a
     majority but not the whole corpus, and the word that decides whether
-    a note is found was one the count had not settled.
+    a note is found was one the count had not settled. Under a list it is
+    dropped however many notes there are, and the twelve here are for the
+    caching rather than for the dropping.
     """
     root = tmp_path / "notes"
     root.mkdir()
@@ -270,10 +272,10 @@ def test_search_survives_a_query_of_punctuation_and_quotes(branch):
 
 # --- It reads the branch, never the graph -------------------------------
 
-# The words this baseline drops are counted over the branch it is given,
-# not read from the index. If they were read from the index, a question
-# the graph gets wrong would be a question the baseline also gets wrong,
-# and the comparison would be blind to the failure it exists to catch.
+# The words this baseline drops are read over the branch it is given, not
+# taken from the index. If they were read from the index, a question the
+# graph gets wrong would be a question the baseline also gets wrong, and
+# the comparison would be blind to the failure it exists to catch.
 
 def test_the_baseline_needs_no_store_to_search(branch, tmp_path):
     """The comparison is against plain keyword search on the same branch.
@@ -289,10 +291,12 @@ def test_the_baseline_counts_the_branch_as_it_stands_and_not_as_the_index_read_i
 ):
     """The two are counted separately, and can therefore disagree.
 
-    Three notes all about kettles, and the index reads them: "kettle" is in
-    every note, so the graph drops it. Then a fourth note arrives about a
-    bedroom window. The baseline reads four notes, so "kettle" is in three
-    of them and is now the one word that finds them.
+    Three notes in Italian, and the index reads them: the branch is
+    written in Italian, so the graph drops "della". Then seven English
+    notes arrive, enough that the branch is now read as English and
+    "della" is a word about a place rather than about grammar. The
+    baseline reads all ten and says so; the index is still holding the
+    three it read, and it says the other thing.
 
     That is the arrangement working. The baseline is an independent
     reading of the same notes rather than a second view of the graph's
@@ -301,31 +305,43 @@ def test_the_baseline_counts_the_branch_as_it_stands_and_not_as_the_index_read_i
     """
     notes = tmp_path / "notes"
     notes.mkdir()
-    (notes / "a.md").write_text("a kettle boils")
-    (notes / "b.md").write_text("a kettle cools")
-    (notes / "c.md").write_text("a kettle stands")
+    for name, text in {
+        "a.md": "il centro della citta della scuola che apre",
+        "b.md": "il mercato della citta della scuola che chiude",
+        "c.md": "il museo della citta della scuola illumina",
+    }.items():
+        (notes / name).write_text(text)
     idx = Index(branch=notes, store_path=tmp_path / "graph.sqlite3")
     idx.refresh()
 
-    (notes / "d.md").write_text("a bedroom window is old")
+    for name, text in {
+        "d.md": "the kettle boils on the stove in the kitchen downstairs",
+        "e.md": "the ferry timetable changed about the crossing at dawn",
+        "f.md": "the printer jams whenever the duplex tray runs dry",
+        "g.md": "the allotment fence wants another coat of paint soon",
+        "h.md": "the beehive frames were harvested and the honey sold",
+        "i.md": "the kayak paddle cracked across the river shallows",
+        "j.md": "the hall ceiling needs painting before the winter ends",
+    }.items():
+        (notes / name).write_text(text)
     baseline = KeywordSearch(notes)
 
-    assert "kettle" in idx.stopwords()
-    assert "kettle" not in baseline.stopwords()
-    assert paths(baseline, "kettle") == {"a.md", "b.md", "c.md"}
+    assert "della" in idx.stopwords(), "three notes in Italian"
+    assert "della" not in baseline.stopwords(), "ten notes, seven of them English"
+    assert paths(baseline, "della") == {"a.md", "b.md", "c.md"}
 
 
-# --- The counting is done once per state of the branch -------------------
+# --- The reading is done once per state of the branch -------------------
 
-def test_the_baseline_counts_its_ubiquitous_words_once_per_branch_and_not_once_per_query(
+def test_the_baseline_reads_the_branch_once_per_run_and_not_once_per_query(
     branch, monkeypatch
 ):
-    """Which words this branch writes in every note is a fact about the
-    notes, so a long list of questions against a branch that has not
-    moved re-counts nothing.
+    """Which words this branch's languages say nothing with is a fact about
+    the notes, so a long list of questions against a branch that has not
+    moved re-reads nothing.
 
     A run over a real corpus is a long list of questions, and each one
-    asks the baseline what to search for. Counting per query would
+    asks the baseline what to search for. Reading per query would
     re-read and re-tokenise every note once per question, which is the
     shape of a cost that grows with the corpus and never gets cheaper
     and never gets noticed.
@@ -343,14 +359,14 @@ def test_the_baseline_counts_its_ubiquitous_words_once_per_branch_and_not_once_p
     for _ in range(5):
         search.search("kettle bread")
 
-    assert len(counted) == 1, "five questions counted the branch five times"
-    assert counted[0] == 12, "and it counted the whole branch, not one note"
+    assert len(counted) == 1, "five questions read the branch five times"
+    assert counted[0] == 12, "and it read the whole branch, not one note"
 
 
-def test_the_baseline_counts_again_once_the_branch_has_moved(branch, monkeypatch):
-    """The count is cached, not kept: a note that arrives changes which
-    words are ubiquitous, and a baseline that kept its answer would go on
-    searching a branch that no longer exists."""
+def test_the_baseline_reads_again_once_the_branch_has_moved(branch, monkeypatch):
+    """The reading is cached, not kept: a note that arrives can change which
+    languages the branch is written in, and a baseline that kept its answer
+    would go on searching a branch that no longer exists."""
     counted = []
     counting = acciughe.keyword.stopwords
 

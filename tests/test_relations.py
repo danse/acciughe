@@ -35,21 +35,24 @@ def test_a_term_is_worth_the_log_of_how_few_notes_hold_it():
     """The weight is log(N / notes holding it), and the reason is that it
     cannot come back empty.
 
-    `stopwords()` asks for words in nine tenths of the notes, and on a
-    131-note branch in Italian and English the most widespread word
-    reached 38% — so it found nothing, returned an empty set, and left
-    every seed ranked by how many function words it shared with the
-    question. "why did the press jam?" produced thirty-six seeds led by a
-    note about somebody's history, because the words *why*, *did* and
-    *the* were in it.
+    The counting `stopwords()` used to do asked for words in nine tenths
+    of the notes, and on a 131-note branch in Italian and English the most
+    widespread word reached 38% — so it found nothing, returned an empty
+    set, and left every seed ranked by how many function words it shared
+    with the question. "why did the press jam?" produced thirty-six seeds
+    led by a note about somebody's history, because the words *why*, *did*
+    and *the* were in it.
 
     There is no cliff in that distribution to put a threshold on — how
     widespread each term is decays smoothly — so a share chosen to drop
     function words also drops subject words by degrees, and no value is
     right rather than roughly defensible. Dividing by the term's own
-    frequency instead lets the corpus supply the weights, needs no
-    inventory of what to leave out, and needs no knowledge of which
-    languages are in play.
+    frequency instead lets the corpus supply the weights.
+
+    The weighting outlived the count. Language lists answer that fault
+    and this still answers one they cannot: a word every note of a branch
+    writes — a project's own name, the way that writer opens a note — is
+    in no language's list, and the weight is what makes it worth nothing.
     """
     held = distinguishing({"a.md": "rare", "b.md": "common", "c.md": "common"}, frozenset())
 
@@ -64,10 +67,12 @@ def test_a_term_in_every_note_is_worth_nothing_and_stays_in_the_table():
     Dropping it would make a caller treat an absence of evidence and a
     term that positively says nothing as the same thing, and the second
     is a real measurement: it is what a fully-connected vocabulary looks
-    like. `seeds_for` cannot reach this case — `stopwords()` drops those
-    terms before it is consulted — so it is pinned here, where the
-    function is called directly, rather than asserted through a caller
-    that would never pass it such a term.
+    like. `seeds_for` cannot reach this case through a corpus whose words
+    a language accounts for — those terms are dropped before it is
+    consulted — so it is pinned here, where the function is called
+    directly, rather than asserted through a caller that would never pass
+    it such a term. It is reachable the other way, on a word no list
+    knows, and that is the case it is for.
     """
     every = distinguishing({"a.md": "the and but", "b.md": "the and but"}, frozenset())
 
@@ -373,13 +378,13 @@ def test_a_word_the_corpus_writes_everywhere_is_dropped():
     assert terms("about does did the of at on is are was were be been must", every) == set()
 
 
-def test_the_corpus_decides_which_words_are_shared():
+def test_the_language_of_the_corpus_decides_which_words_are_shared():
     """Twelve notes on three subjects, four notes each, and "the" in all.
 
-    "The" is in every note and "graph" is in four, so the articles go and
-    the subject stays. That difference is the whole mechanism: a list says
-    which words a language uses for grammar, and this says which words
-    *these notes* use for nothing.
+    A list says which words a language uses for grammar, and this says
+    which of those words *these notes* are written with. The subject words
+    are in four notes each and go nowhere near a stopword list, so they
+    stay, which is the difference the mechanism turns on.
     """
     said = {
         "compiler": ("reads", "writes", "index", "builds"),
@@ -393,10 +398,10 @@ def test_the_corpus_decides_which_words_are_shared():
 
     found = stopwords(corpus)
 
-    # "the" and "writes" are in all twelve; each subject is in four.
-    assert found == frozenset({"the", "writes"})
+    assert "the" in found
+    assert "writes" not in found, "a contentful verb is not a stopword"
     assert terms("the compiler reads and writes", found) == {
-        "compiler", "reads", "and",
+        "compiler", "reads", "writes",
     }
 
 
@@ -457,83 +462,80 @@ def test_an_italian_corpus_drops_its_own_function_words():
     corpus["eleven"] = "il mercato della città della scuola che chiude"
     found = stopwords(corpus)
 
-    assert {"che", "della", "città"} <= found
+    assert {"che", "della"} <= found
     assert terms("il giardino fiorisce", found) == {"giardino", "fiorisce"}
 
 
-def test_a_corpus_too_small_to_count_keeps_every_word():
-    """Below the floor nothing is dropped, and the reason is that there is
-    nothing to compare against.
+def test_a_corpus_of_two_notes_drops_its_function_words_too():
+    """There is no floor, and this is why one is not needed.
 
-    In a two-note corpus "the" and "corpus" are both in every note, and no
-    share separates a function word from the one subject two notes happen
-    to agree on. Guessing there deletes the subject, and a subject is what
-    an edge is made of: two notes about "a corpus of notes" linked by
-    co-occurrence would lose the edge to the very fact that they agreed.
+    The count that used to answer this asked what share of the notes
+    write a word, and over two notes nothing could be told apart: "the"
+    and "corpus" are both in every note, so any threshold that dropped
+    one dropped the other and deleting the subject is the expensive
+    mistake. A language's list is a fact about the language and does not
+    depend on how many notes happened to be written in it, so two notes
+    are as readable as two hundred.
     """
     pair = {
         "uno": "the compiler pipeline reads a corpus of notes",
         "due": "a corpus read by a pipeline that compiles",
     }
 
-    assert stopwords(pair) == frozenset()
-    assert len(cooccurrence_edges(pair)) == 1
+    assert {"the", "and"} <= stopwords(pair)
+    assert len(cooccurrence_edges(pair, stop=stopwords(pair))) == 1
 
 
-def test_the_floor_is_a_sample_size_and_the_share_is_a_preference():
-    """Two different judgements, so two different numbers.
+def test_a_mixed_corpus_drops_the_function_words_of_both_languages():
+    """Two languages in one branch, and neither list applied alone.
 
-    The floor is where a count stops meaning anything — nothing about it
-    says how aggressive to be, and it would be 12 for a corpus of four as
-    readily as for one of four thousand. The share is a preference about
-    which words to drop, and it changes with the corpus.
-
-    Both are parameters, because both are opinions about somebody else's
-    notes and the reader is the one who can see the notes.
+    An Italian corpus's function words are not in the English list, so
+    stopping at the language with the most notes would leave "della" in an
+    Italian half of the branch as a term — held by grammar rather than by
+    subject, which is the fault the stage exists to close. Both are
+    detected and both lists apply.
     """
-    twelve = {f"note-{n}": f"the graph holds an edge number {n}" for n in range(12)}
+    corpus = {
+        "uno": "il centro della città della scuola che apre",
+        "due": "il mercato della città della scuola che chiude",
+        "tre": "the shed needs a new roof",
+        "quattro": "the compiler reads a corpus of notes",
+    }
 
-    assert "the" in stopwords(twelve)
-    # Same twelve notes, asking for a share no word can reach.
-    assert stopwords(twelve, share=1.5) == frozenset()
-    # Same twelve notes, asking for a floor below them.
-    assert "the" in stopwords(twelve, floor=4)
+    found = stopwords(corpus)
 
-    # Four notes about one thing, asking for a floor below them: then
-    # even the subject goes, because in four notes that really is what
-    # everybody writes. This is the failure a floor exists to prevent,
-    # shown rather than asserted about.
-    four = {f"note-{n}": f"the graph holds an edge number {n}" for n in range(4)}
-    assert "the" in stopwords(four, floor=4)
-    assert "graph" in stopwords(four, floor=4)
+    assert {"della", "che"} <= found, "the Italian half"
+    assert {"the"} <= found, "and the English half"
+    assert "centro" not in found and "compiler" not in found
 
 
-def test_the_share_is_askable():
-    """Which words count as shared is a judgement about a corpus nobody has
-    seen, so a reader who disagrees can ask for a different one and see
-    the other number rather than having to trust this one.
+def test_a_corpus_with_no_function_words_keeps_every_word():
+    """Nothing detected, and nothing dropped.
 
-    Twelve notes. "scuola" is in eleven of them and "della" in all
-    twelve, so the two shares disagree about one and agree about the
-    other. A share is only a distinct answer where the words sit at
-    different distances from it, which is why the fixture has words at
-    both distances.
+    Three notes about kettles share no word with any stopword list, so
+    there is no language to have written them in. Guessing English would
+    be a way of stripping words out of a corpus nobody asked to have
+    stripped, and "kettle" is the subject of all three.
     """
-    corpus = {f"note-{n}": "la città della scuola che apre" for n in range(10)}
-    corpus["ten"] = "la città della scuola che chiude"
-    corpus["eleven"] = "la città della che illumina"
+    corpus = {
+        "a": "a kettle boils",
+        "b": "a kettle cools",
+        "c": "a kettle stands",
+    }
 
-    loose = stopwords(corpus, share=0.85)
-    strict = stopwords(corpus, share=0.95)
+    assert stopwords(corpus) == frozenset()
+    assert terms("a kettle boils", stopwords(corpus)) == {"kettle", "boils"}
 
-    assert "della" in loose
-    assert "scuola" in loose
-    assert "fiorisce" not in loose
 
-    assert "della" in strict
-    assert "scuola" not in strict
+def test_a_short_corpus_of_one_word_detects_nothing():
+    """A word is not a language, and one note says nothing about one.
 
-    assert stopwords(corpus, share=1.5) == frozenset()
+    There was a floor for this under the count, and it was three notes.
+    What the floor protected against was guessing; detection does not
+    guess, so there is nothing left to protect against and no floor to
+    keep in step with a threshold that no longer exists.
+    """
+    assert stopwords({"solo": "lamination"}) == frozenset()
 
 
 def test_a_word_one_note_writes_is_never_dropped():
@@ -559,7 +561,6 @@ def test_a_word_one_note_writes_is_never_dropped():
 
     found = stopwords(corpus)
 
-    assert "brilla" not in found
     assert "della" in found
 
 

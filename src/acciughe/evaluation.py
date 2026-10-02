@@ -33,7 +33,7 @@ from acciughe.graph import Grounding
 from acciughe.index import Index
 from acciughe.keyword import KeywordSearch
 from acciughe.propose import Proposal
-from acciughe.relations import CO_OCCURRENCE, stopwords, words
+from acciughe.relations import CO_OCCURRENCE
 from acciughe.session import Answer, Components, Refusal
 
 # Whitespace is not a claim. A quote has to appear in the note, but
@@ -207,112 +207,6 @@ def question_verdict(
     )
 
 
-# --- How much of the graph is a word everybody writes --------------------
-
-# DECISION: half the notes. A term in this many notes cannot tell one
-# from another, so any edge it holds is a coincidence of vocabulary
-# rather than a relation. Half rather than nine-tenths because a term
-# in ninety per cent of notes is usually the subject of the corpus, and
-# dropping the subject of a corpus to tidy its graph would be a cure
-# worse than the complaint.
-UBIQUITY = 0.5
-
-_NAMED = 12
-
-
-@dataclass(frozen=True, slots=True)
-class Ubiquity:
-    """How much of the graph is held together by words that say nothing.
-
-    ``terms`` are the words themselves, most widespread first, because a
-    count of "this much of your graph is noise" is not actionable and a
-    list of the words is: every one of them is a word the stopword list
-    should have known about, and naming them is how a reader finds out
-    which language the list is missing.
-
-    ``threshold`` is the share a word had to reach to count as writing
-    nothing, and it is carried rather than assumed to be `UBIQUITY`,
-    because ``ubiquity`` takes the share as an argument and a report that
-    named the wrong one would be describing a measurement made by a
-    different rule than the one that was run. It is what the sentence
-    shown to the reader says, so it cannot be a detail.
-    """
-
-    notes: int
-    edges: int
-    held_by_these_alone: int
-    share: float
-    terms: list[tuple[str, int]]
-    threshold: float = UBIQUITY
-
-
-def ubiquity(
-    index: Index, share: float = UBIQUITY, floor: int = 0
-) -> Ubiquity:
-    """The co-occurrence edges that no word in them actually supports.
-
-    An edge between two notes is real if they share a term that
-    distinguishes one from another. An edge whose *only* shared terms
-    are the ones nearly every note has is an artefact of everybody
-    writing the same function words, and it costs the same to the walk
-    as a real one: the graph looks connected, the walk reaches
-    everywhere, and nothing was found.
-
-    Counted over co-occurrence only. A link edge is somebody having
-    written `[[this]]`, which no vocabulary can fake.
-
-    Computed from the notes rather than kept in the store, because it is
-    a measurement of the corpus and not part of the derivation: the same
-    graph measured on a corpus with one note removed is a different
-    measurement, and nothing here is cached against a timestamp.
-    """
-    per_note = {
-        note_id: words(text) for note_id, text in index.notes()
-    }
-    counts: Counter[str] = Counter()
-    for found in per_note.values():
-        counts.update(found)
-
-    # No floor by default, which is deliberate and different from
-    # `relations.stopwords`. A derivation has to avoid being wrong, and
-    # over a handful of notes a count separates nothing; a measurement has
-    # only to be true about what is there, and on a small corpus naming
-    # the words everybody writes is the entire point of looking. `floor`
-    # asks for the derivation's own view instead.
-    everywhere = (
-        stopwords(per_note, share=share, floor=floor) if floor
-        else frozenset(
-            word for word, seen in counts.items()
-            if seen >= max(2, share * len(per_note))
-        )
-    )
-
-    held = 0
-    for a, b, kind, _weight in index.edges():
-        if kind != CO_OCCURRENCE:
-            continue
-        shared = per_note.get(a, set()) & per_note.get(b, set())
-        if shared and not (shared - everywhere):
-            held += 1
-
-    co = sum(
-        1 for _a, _b, kind, _w in index.edges() if kind == CO_OCCURRENCE
-    )
-    widest = sorted(
-        ((word, seen) for word, seen in counts.items() if word in everywhere),
-        key=lambda pair: (-pair[1], pair[0]),
-    )
-
-    return Ubiquity(
-        notes=len(per_note),
-        edges=co,
-        held_by_these_alone=held,
-        share=(held / co) if co else 0.0,
-        terms=widest[:_NAMED],
-        threshold=share,
-    )
-
-
 # --- The shape of the graph --------------------------------------------
 
 @dataclass(frozen=True, slots=True)
@@ -397,17 +291,12 @@ class Profile:
     would rank a subject that shares many words above one you linked by
     hand, which is the opposite of what a reader would expect from the
     order.
-
-    ``noise`` is carried rather than recomputed because it is a
-    measurement and the profile is not allowed to hold a corpus: the
-    caller passes the measurement in, the same way `report()` does.
     """
 
     branch: str
     notes: int
     subjects: list[Subject] = field(default_factory=list)
     related: list[tuple[str, int]] = field(default_factory=list)
-    noise: Ubiquity | None = None
 
 
 def _subject_of(note_id: str) -> str:
@@ -445,7 +334,7 @@ def subjects_of(notes: list[str], branch: str) -> dict[str, str]:
     return {note_id: _subject_of(note_id) for note_id in notes}
 
 
-def profile(index: Index, share: float = UBIQUITY) -> Profile:
+def profile(index: Index) -> Profile:
     """What a branch holds, counted from the graph an answer is walked.
 
     The same graph, read for its shape rather than for what it can
@@ -455,9 +344,8 @@ def profile(index: Index, share: float = UBIQUITY) -> Profile:
 
     A note's subject is not stored: it is read from the path every time,
     so moving a note between folders changes the profile without anything
-    being re-derived. That is the same reason `ubiquity` recomputes rather
-    than reading the store — this is a measurement of the corpus and not
-    part of the derivation.
+    being re-derived. This is a measurement of the corpus and not part of
+    the derivation.
     """
     notes = sorted(index.note_ids())
     home = subjects_of(notes, index.branch.name)
@@ -504,7 +392,6 @@ def profile(index: Index, share: float = UBIQUITY) -> Profile:
             ((note_id, degree[note_id]) for note_id in notes if degree[note_id]),
             key=lambda pair: (-pair[1], pair[0]),
         ),
-        noise=ubiquity(index, share=share),
     )
 
 
@@ -623,22 +510,6 @@ class Report:
     branch has to stop somewhere, and a stop that is not counted is a
     yield presented as though it were the whole.
 
-    ``ubiquity`` is the one measurement here that is not about the run at
-    all. Everything else counts attempts; this counts the corpus, and it
-    is the thing that would explain a poor yield rather than be part of
-    one — a graph whose co-occurrence edges are held up by words half the
-    corpus writes is a graph that looks connected and finds nothing, and
-    a report showing a low yield without showing that would leave the
-    reader to guess which of the two they are looking at.
-
-    It is optional and passed in, not computed here, because `report` asks
-    for no corpus and consults no model. A function that reached for the
-    index to measure it would be the one place in the evaluation able to
-    both count a run and describe the notes, and the guarantee that it
-    cannot guess is worth more than the convenience of not passing an
-    argument. `trial.run` holds the index, so the caller measures and
-    hands it over.
-
     ``grounded`` is the one set of counts here about the walk rather
     than about the model, and it is kept per turn rather than summed on
     the way in because the sums are not the measurement. How much of what
@@ -664,7 +535,6 @@ class Report:
     correct: int = 0
     uncorroborated: int = 0
     fabricated: list[Finding] = field(default_factory=list)
-    ubiquity: Ubiquity | None = None
     grounded: list[Grounding] = field(default_factory=list)
 
     @property
@@ -758,7 +628,7 @@ class Report:
         return self.kept >= MIN_COMPARISON
 
 
-def report(attempts: Iterable[Attempt], ubiquity: Ubiquity | None = None) -> Report:
+def report(attempts: Iterable[Attempt]) -> Report:
     """What a run of the evaluation found.
 
     A pure count over what was attempted. It asks for no corpus and consults
@@ -782,17 +652,6 @@ def report(attempts: Iterable[Attempt], ubiquity: Ubiquity | None = None) -> Rep
     not reached, added to the length of the list and set on the report as
     well, was the shape this replaced, and the two were easy to get right
     separately and wrong together.
-
-    ``ubiquity`` is the one thing passed in, and it is not a view of the
-    attempts — it is a count of the corpus, made by a function that takes
-    an index and knows nothing about a run. Handing over the finished
-    measurement keeps the guarantee above intact in the only way it can
-    be: a report still holds no corpus, so there is still nothing in here
-    that could consult the notes about anything. Reading the words that
-    hold the co-occurrence edges together, inside the function that
-    decides what a run meant, would be the same measurement wearing a
-    different hat and able to reach the notes once it had learned to
-    count.
     """
     attempts = list(attempts)
     checked = [a for a in attempts if a.citations is not None]
@@ -812,6 +671,5 @@ def report(attempts: Iterable[Attempt], ubiquity: Ubiquity | None = None) -> Rep
         correct=sum(a.citations.correct for a in checked),
         uncorroborated=sum(1 for a in checked if a.citations.uncorroborated),
         fabricated=[f for a in checked for f in a.citations.fabricated],
-        ubiquity=ubiquity,
         grounded=[a.grounding for a in attempts if a.grounding is not None],
     )

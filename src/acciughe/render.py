@@ -30,7 +30,6 @@ from acciughe.evaluation import (
     Profile,
     Report,
     Subject,
-    Ubiquity,
 )
 from acciughe.index import Read
 from acciughe.session import (
@@ -403,8 +402,6 @@ def render_report(report: Report) -> str:
 
     lines.append(_outcomes_of(report))
     lines += _citations_of(report)
-    if report.ubiquity is not None:
-        lines.append(_ubiquity_of(report.ubiquity))
     lines += _grounding_of(report)
     return "\n".join(line for line in lines if line)
 
@@ -466,9 +463,8 @@ def render_summary(profile: Profile) -> str:
 
     product.md: "A corpus can also be described rather than questioned.
     The description is counted from the same graph an answer is walked:
-    the subjects it holds, the notes most related to, which subjects touch
-    which others, and how much of the graph is held together by words
-    nearly every note writes."
+    the subjects it holds, the notes most related to, and which subjects
+    touch which others."
 
     **No sentence here is written about the corpus, only counted.** That
     is the spec's own reason and it is a good one: a description carries
@@ -489,14 +485,6 @@ def render_summary(profile: Profile) -> str:
     reaching 43 — and a reader who saw only the heavier side would take
     that to be the whole relation. The counts are of pairs, and they will
     not match, because one note's pair is counted once.
-
-    **The noise line comes last and is the one that qualifies the rest.**
-    Degree is what the graph says, and on a corpus where the stopword
-    threshold finds nothing, degree counts a great deal of vocabulary
-    everybody shares. The four sections above are true of the graph
-    regardless; this is the one that says whether the graph is a relation
-    or a coincidence, and burying it would let the numbers above be read
-    as more than they are.
     """
     lines = [
         f"{profile.notes} note{_plural(profile.notes)} in "
@@ -505,8 +493,6 @@ def render_summary(profile: Profile) -> str:
 
     lines += _subjects_of(profile)
     lines += _related_of(profile)
-    if profile.noise is not None:
-        lines.append(_ubiquity_of(profile.noise))
     return "\n".join(line for line in lines if line)
 
 
@@ -572,84 +558,6 @@ def _related_of(profile: Profile) -> list[str]:
     return lines
 
 
-def _ubiquity_of(noise: Ubiquity) -> str:
-    """How much of the graph is held together by words everybody writes.
-
-    **Last, and as its own paragraph, because it is a fact about the
-    corpus rather than about the run.** Everything above it counts turns;
-    this counts edges, and it is the reading that explains the yield
-    rather than joining it. A low yield beside a high share is one
-    finding — the graph looked connected and found nothing — and a reader
-    shown the yield without this has been shown half the cause.
-
-    It does not go directly under the yield, which would break the shape
-    above: the answer rate and the citation correctness are inseparable
-    and anything printed between them invites a reader to quote them
-    apart. Putting it after them costs a line of adjacency and keeps the
-    one pairing that must not be broken.
-
-    **The threshold is spoken as the fraction it is.** `UBIQUITY` is half
-    the corpus today and `ubiquity` takes the share as an argument, so
-    the sentence is built from the measurement's own `threshold` rather
-    than from the constant. A hard-coded "half" beside a measurement
-    taken at three quarters would be describing a rule that was never
-    run, which is the one failure this report is built to make
-    impossible.
-
-    **The words are named, not just counted.** A share on its own is a
-    number to accept or ignore; "these twelve are in more than half your
-    notes" is a list a reader can act on, and every word in it is one the
-    stopword list should have known about. Naming them is also how a
-    reader finds out which language the list is missing — a corpus in two
-    languages shares its function words, and a word appearing in both
-    halves of such a corpus is either one word in both languages or one
-    the corpus happens to repeat.
-
-    **A measurement that could not be taken says so, and prints no
-    percentage.** Three absences, each of which would otherwise print a
-    number that reads as a result:
-
-    - No co-occurrence edges at all. `0 of 0` is a division nothing was
-      divided into, and `0%` beside it is a perfect score.
-    - No word reaching the threshold. This is the one a real corpus
-      produced, and it is the subtlest: if no word is in enough notes,
-      then by the threshold's own definition no edge is held by
-      ubiquitous words alone, and the count is *zero and correct* — 0 of
-      3365, 0%. But the threshold found nothing to measure with, so the
-      figure describes a rule that never applied rather than a corpus
-      that came out clean. The two are opposite findings and print the
-      same digits, which is why the sentence names the absence instead of
-      reporting the rate.
-    - Words found, none of which held an edge alone. A real share of
-      zero, and said as such, because here the rule did apply and found
-      the corpus clean.
-    """
-    if not noise.edges:
-        return (
-            "  nothing relates notes by shared words, so no words hold the "
-            "graph together"
-        )
-
-    if not noise.terms:
-        return (
-            "  no word is in "
-            f"{_fraction(noise.threshold)} of the notes, so nothing was "
-            "measured: the graph may be held together by words everybody "
-            "writes, and this cannot tell"
-        )
-
-    said = (
-        f"  {noise.held_by_these_alone} of {noise.edges} co-occurrence "
-        "relations are held together only by words "
-        f"{_fraction(noise.threshold)} of the corpus writes "
-        f"({_percent(noise.share)})"
-    )
-    if not noise.held_by_these_alone:
-        said += ", and this has named them anyway"
-    words = ", ".join(f"{word} in {seen}" for word, seen in noise.terms)
-    return f"{said}\n    {words}"
-
-
 def _yield_of(report: Report) -> str:
     line = (
         f"{report.kept} of {report.proposed} proposed question"
@@ -711,11 +619,11 @@ def _percent(fraction: float) -> str:
     return f"{round(fraction * 100)}%"
 
 
-# How a share is spoken when it is a rule rather than a result. Half and
-# most are the two a threshold ever lands on in practice, and anything
-# else falls back to the number, because a strange fraction spelled in
-# words would be read as a precise claim about a threshold that was
-# chosen to be crude.
+# How a share is spoken when it is one of the few a rule lands on rather
+# than a figure that fell out of a count. Half, three quarters and nine
+# tenths are the ones; anything else falls back to the number, because a
+# strange fraction spelled in words would be read as a precise claim
+# about a figure that was not chosen.
 _FRACTIONS = {
     0.5: "half",
     0.9: "nine tenths",

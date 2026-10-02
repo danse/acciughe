@@ -52,7 +52,6 @@ from acciughe.evaluation import (
     GraphMetrics,
     Profile,
     Subject,
-    Ubiquity,
     Verdict,
     report,
 )
@@ -89,13 +88,11 @@ def branch(tmp_path):
     make a mis-attributed quote indistinguishable from a correct one, and
     these tests are partly about telling them apart.
 
-    Four notes is too few for a word count to settle, so the words the
-    question shares with `lonely` — "what", "is", "the" — are not yet
-    ubiquitous and the question about ducks matches it. These tests are
-    about how an outcome is rendered, and the outcome under test has to be
-    the one they mean; `tests/test_agent.py` keeps the same three notes
-    at a size where a count can decide, and asserts the refusal kinds
-    there.
+    `lonely` is named for the question about the shed, and "shed" is a
+    word on the English stopword list — the verb, not the outbuilding — so
+    the question is about the roof and the note is about the roof. These
+    tests are about how an outcome is rendered, and the outcome under test
+    has to be the one they mean.
     """
     notes = tmp_path / "notes"
     notes.mkdir()
@@ -104,7 +101,7 @@ def branch(tmp_path):
     )
     (notes / "one.md").write_text("branch notes about unrelated gardening")
     (notes / "two.md").write_text("branch notes about allotment planning")
-    (notes / "lonely.md").write_text("the allotment shed needs a new roof")
+    (notes / "lonely.md").write_text("the allotment roof needs a new slate")
     return notes
 
 
@@ -207,7 +204,7 @@ def test_the_parts_are_shown_with_the_reason_they_are_not_an_answer(index):
 def test_a_refusal_says_which_kind_of_not_awareness_it_is(index):
     """product.md: "says which kind of not-knowing it is: absent from the
     corpus, present but unconnected, or thin."""
-    result = turn("what is in the shed?", index, answer_from=parts())
+    result = turn("what is in the roof?", index, answer_from=parts())
 
     shown = render(result)
 
@@ -230,7 +227,7 @@ def test_the_three_outcomes_share_no_claim_line(index):
     shown_parts = render(turn(
         ASKING, index, answer_from=parts(("one.md", "about unrelated gardening")),
     ))
-    refused = render(turn("what is in the shed?", index, answer_from=parts()))
+    refused = render(turn("what is in the roof?", index, answer_from=parts()))
 
     assert "The pipeline reads the notes folder." in answered
     assert "The pipeline reads the notes folder." not in shown_parts
@@ -244,7 +241,7 @@ def test_a_refusal_never_shows_a_note_the_turn_reached(index):
     """A path in a refusal means "this is the note I could not use". A path
     in an answer means "this is what I used". The same word for both is
     the ambiguity; the fork is what separates them."""
-    result = turn("what is in the shed?", index, answer_from=parts())
+    result = turn("what is in the roof?", index, answer_from=parts())
 
     assert "lonely.md" in render(result)
     assert 'lonely.md: "' not in render(result)
@@ -305,7 +302,7 @@ def test_a_refusal_offers_the_way_through_it(index):
     """product.md: "a refusal is a fork rather than a wall: what is
     present but unconnected redirects the question, what is thin asks for
     more." A refusal printed without its fork is the wall."""
-    result = turn("what is in the shed?", index, answer_from=parts())
+    result = turn("what is in the roof?", index, answer_from=parts())
 
     assert "try asking: What is in lonely.md?" in render(result)
 
@@ -337,7 +334,7 @@ def test_a_refusal_names_the_notes_it_kept_and_why(index):
     The reason is shared by every note in one turn, which is itself the
     check: a reader told "unconnected" can confirm it by opening one.
     """
-    result = turn("what is in the shed?", index, answer_from=parts())
+    result = turn("what is in the roof?", index, answer_from=parts())
 
     shown = render(result)
     assert "lonely.md" in shown
@@ -388,7 +385,7 @@ def test_a_walk_that_reached_only_its_seed_says_what_it_reached(index):
     and printing the seed twice with an arrow between them would dress a
     walk that went nowhere as a walk that went somewhere. Reaching
     exactly where it started *is* the unconnected case."""
-    result = turn("what is in the shed?", index, answer_from=parts())
+    result = turn("what is in the roof?", index, answer_from=parts())
 
     shown = render(result)
     assert result.outcome.kind is RefusalKind.UNCONNECTED
@@ -467,7 +464,11 @@ def test_the_reader_is_told_what_is_being_read_before_the_pause(index):
         on_progress=said.append,
     )
 
-    assert "reading 4 notes: seed.md, lonely.md, one.md, two.md" in said[0]
+    # Three notes and not four: `lonely` was reached here only through
+    # "the", which the question and the note both carry and which says
+    # nothing about either. A language's stopword list drops it, so the
+    # walk starts at the seed and takes the two notes it links to.
+    assert "reading 3 notes: seed.md, one.md, two.md" in said[0]
     assert "one to two minutes" in said[0]
 
 
@@ -477,7 +478,7 @@ def test_a_refused_turn_reports_no_reading(index):
     no sentence was ever drawn from."""
     said = []
 
-    turn("what is in the shed?", index, answer_from=parts(),
+    turn("what is in the roof?", index, answer_from=parts(),
          on_progress=said.append)
 
     assert said == []
@@ -909,308 +910,6 @@ def test_a_wrong_citation_is_named_by_note_and_why():
 
 # --- The corpus is measured too, and an absence is not a score -----------
 
-def _noise(**over):
-    """A ubiquity measurement shaped like the one a real corpus gave.
-
-    The defaults are a read from a mixed Italian-and-English branch of
-    131 notes in which no word reached the threshold, which is why
-    ``terms`` starts empty: it is the case where the measurement could
-    not be taken at all, and the case that would otherwise print a
-    perfect and completely unearned 0%.
-    """
-    fields = dict(
-        notes=131,
-        edges=2730,
-        held_by_these_alone=0,
-        share=0.0,
-        terms=[],
-        threshold=0.5,
-    )
-    fields.update(over)
-    return Ubiquity(**fields)
-
-
-def _answered(question="q?", **over):
-    fields = dict(
-        proposal=Proposal(question=question, asked_in="s.md", answers=["a.md"]),
-        verdict=Verdict(KEPT, "search cannot follow this"),
-        outcome=Answer("x"),
-        citations=CitationReport(2, 2),
-    )
-    fields.update(over)
-    return Attempt(**fields)
-
-
-def _grounded(seeds=5, through=0, agree=True):
-    """A grounding shaped like a real turn.
-
-    All five notes the model was shown matched the question's own words
-    and none came through a relation, which is the shape that made the
-    missing measurement worth adding: the evidence is ordered by
-    relevance, so the seeds fill it before a relation is reached, and a
-    report that does not say so cannot tell a walk that consulted the
-    graph from one that never needed to.
-    """
-    return Grounding(seeds=seeds, through_edges=through, seeds_agree=agree)
-
-
-def _grounding_lines(reported):
-    """The lines a report renders about the walk, and nothing else."""
-    return [
-        line
-        for line in render_report(reported).split("\n")
-        if "through a relation" in line or "strongest single word" in line
-    ]
-
-
-def _corpus_line(reported):
-    """The line a corpus measurement renders to, and nothing else.
-
-    Scoped to one line on purpose. The answer rate prints its own `0%`
-    when nothing was asked, and that is a real figure about a real
-    absence; the assertions here are about whether the *corpus* reading
-    invents a rate, and searching a whole rendering for `%` would fail on
-    a line that has nothing to do with the question.
-    """
-    lines = [
-        line for line in render_report(reported).splitlines()
-        if "of the corpus writes" in line or "no word is in" in line
-        or "nothing relates notes" in line
-    ]
-    assert len(lines) == 1, f"expected one corpus line, got {lines}"
-    return lines[0]
-
-
-def test_a_report_carries_the_corpus_measurement_alongside_the_run():
-    """agenda.md, second item: "The report carries `ubiquity`."
-
-    It is the reading that explains the yield rather than joining it: a
-    low yield beside a high share is one finding — the graph looked
-    connected and found nothing — and a reader shown the yield without
-    this has been shown half the cause.
-    """
-    quiet = report([_answered()])
-    measured = report([_answered()], _noise(
-        terms=[("che", 49), ("per", 50)],
-        held_by_these_alone=1100,
-        share=1100 / 2730,
-    ))
-
-    assert quiet.ubiquity is None, (
-        "and absent rather than zero when nothing was measured, because a "
-        "zero would be indistinguishable from a clean corpus"
-    )
-    assert "1100 of 2730" in render_report(measured)
-    assert "che in 49, per in 50" in render_report(measured)
-
-
-def test_a_report_says_what_share_of_the_evidence_came_through_a_relation():
-    """The figure the agenda said was missing, and the one that can settle
-    `_SHARE` on a branch rather than describing it.
-
-    Every other line on the report is about the model. Citation
-    correctness cannot tell a turn answered from the note the question was
-    about from one answered from five notes it was never about — both
-    quote faithfully, both score 100% — so a run can be perfect on
-    every figure here and have consulted no graph at all.
-    """
-    shown = _grounding_lines(report([_answered(grounding=_grounded())]))
-
-    assert len(shown) == 2, "a share, and the breadth comparison"
-    assert shown[0] == "  nothing the model read came through a relation", (
-        "said rather than omitted, because a share of zero is the finding "
-        "rather than an absence of one: the evidence was full of notes "
-        "the question named and none a relation had reached"
-    )
-
-
-def test_a_report_says_when_the_relations_carried_the_evidence():
-    """The other side of the same line, and the case it exists to make
-    distinguishable from the first.
-
-    Most of what the model was shown came through a relation rather than
-    out of the question's own words, so the co-occurrence stage is load
-    bearing on this branch and a threshold on the words is what decides
-    how much of the model's evidence is worth having. Read beside the
-    share of zero, it is the difference between a graph that was
-    consulted and one that was not.
-
-    The two counts are spoken rather than left as a percentage alone: a
-    share of 50% over three notes and one over 150 are different
-    findings, and a reader deciding whether a threshold matters cannot
-    tell them apart from the share.
-    """
-    edges = report([
-        _answered(grounding=_grounded(seeds=3, through=7)),
-        _answered(grounding=_grounded(seeds=3, through=7)),
-    ])
-    line = _grounding_lines(edges)[0]
-
-    assert line == (
-        "  70% of what the model read came through a relation, "
-        "14 notes of 20"
-    ), (
-        "counted over every turn rather than averaged, so a run of two "
-        "turns is the same number as a run of two hundred"
-    )
-
-
-def test_a_report_says_when_the_sum_and_the_strongest_word_disagree():
-    """The breadth question as a count rather than an argument.
-
-    The two rankings differ only where a seed wins on the sum of what it
-    shares while the seed it beat holds a stronger single term. Each turn
-    that disagrees is a question the ranking answered one way and the
-    other ranking would answer the other, which is what the agenda has
-    been carrying as a judgement.
-    """
-    split = report([
-        _answered(grounding=_grounded(agree=True)),
-        _answered(grounding=_grounded(agree=False)),
-        _answered(grounding=_grounded(agree=True)),
-    ])
-
-    assert "named the same seed in 2 of 3 turns" in _grounding_lines(split)[1]
-    assert "the sum is what chose the other 1" in _grounding_lines(split)[1]
-
-
-def test_a_report_that_never_split_the_two_rankings_says_the_sum_cost_nothing():
-    never = report([
-        _answered(grounding=_grounded(agree=True)),
-        _answered(grounding=_grounded(agree=True)),
-    ])
-
-    assert "named the same seed every time" in _grounding_lines(never)[1]
-    assert "the sum cost nothing on this run" in _grounding_lines(never)[1]
-
-
-def test_a_report_over_no_asked_question_mentions_the_walk_not_at_all():
-    """Silence rather than a zero, because the walk was never consulted.
-
-    A report over zero attempts has no grounding to count, and printing
-    `0%` beside nothing would be the same unearned perfect score the
-    corpus line refuses to print.
-    """
-    assert _grounding_lines(report([])) == []
-
-
-def test_a_measurement_that_found_no_word_says_so_and_prints_no_rate():
-    """A real corpus produced this, and the first rendering printed `0%`.
-
-    No word reached the threshold, so no edge is held by ubiquitous words
-    alone and the count is *zero and correct* — 0 of 2730, 0%. But the
-    threshold found nothing to measure with, so the figure describes a
-    rule that never applied rather than a corpus that came out clean.
-    Those are opposite findings that print the same digits, so the
-    rendering names the absence instead of reporting the rate.
-    """
-    shown = _corpus_line(report([], _noise()))
-
-    assert "no word is in half of the notes" in shown
-    assert "nothing was measured" in shown
-    assert "%" not in shown, (
-        "and no percentage at all: a rate beside a measurement that never "
-        "happened is a score for something nobody looked at. The answer "
-        "rate's own 0% is a different line and is not what this is about."
-    )
-    assert "0 of 2730" not in shown, "nor the count the rule never reached"
-    assert "may be held together" in shown, (
-        "and it says which way the unknown points, rather than leaving "
-        "the graph sounding clean"
-    )
-
-
-def test_a_measurement_that_took_and_found_a_clean_corpus_says_that():
-    """The opposite of the above, and it must not read the same way.
-
-    Words reached the threshold, the rule applied, and no edge turned out
-    to be held by them alone. That is a real zero — a corpus that came
-    out clean — and it is the one case where `0%` is an honest figure.
-    """
-    shown = render_report(report(
-        [], _noise(terms=[("che", 49)], held_by_these_alone=0, share=0.0)
-    ))
-
-    assert "0 of 2730 co-occurrence" in shown
-    assert "(0%)" in shown
-    assert "nothing was measured" not in shown
-    assert "named them anyway" in shown, (
-        "the words are still shown: a reader cannot tell a corpus that "
-        "came out clean from a list that happens to hold nothing without "
-        "seeing which words the rule considered"
-    )
-
-
-def test_a_corpus_with_no_shared_word_relations_reports_no_measurement():
-    """0 of 0 is a division nothing was divided into."""
-    shown = _corpus_line(report(
-        [], _noise(edges=0, held_by_these_alone=0, share=0.0)
-    ))
-
-    assert "nothing relates notes by shared words" in shown
-    assert "%" not in shown, (
-        "0 of 0 is a division nothing was divided into, and a percentage "
-        "of it is a score for a measurement that did not take"
-    )
-
-
-def test_a_report_with_nothing_measured_does_not_mention_the_corpus():
-    """Absent is silent. A line about a measurement nobody made would be
-    a reader looking for a finding that was never taken."""
-    shown = render_report(report([], None))
-
-    assert "measured" not in shown
-    assert "co-occurrence relations are held together" not in shown
-
-
-def test_the_threshold_is_spoken_from_the_measurement_not_the_constant():
-    """`ubiquity` takes the share as an argument.
-
-    A rendering that said "half" beside a measurement taken at three
-    quarters would be describing a rule that was never run, which is the
-    one failure this report exists to make impossible.
-    """
-    at_three_quarters = report(
-        [], _noise(terms=[("che", 49)], held_by_these_alone=900,
-                   share=900 / 2730, threshold=0.75)
-    )
-    at_an_odd_share = report(
-        [], _noise(terms=[("che", 49)], held_by_these_alone=900,
-                   share=900 / 2730, threshold=0.63)
-    )
-
-    assert "words three quarters of the corpus writes" in render_report(
-        at_three_quarters
-    )
-    assert "words 63% of the corpus writes" in render_report(at_an_odd_share), (
-        "an unremarkable threshold falls back to the number rather than "
-        "being guessed at in words"
-    )
-    assert "half of the corpus" not in render_report(at_three_quarters)
-
-
-def test_the_corpus_measurement_comes_last_and_leaves_the_pairing_alone():
-    """The answer rate and the citation correctness cannot be separated.
-
-    Anything printed between them invites a reader to quote them apart,
-    which is the failure `render_report` is built around. So the corpus
-    reading goes after both rather than up beside the yield, and it is
-    its own paragraph.
-    """
-    shown = render_report(report(
-        [_answered()],
-        _noise(terms=[("che", 49)], held_by_these_alone=900,
-               share=900 / 2730),
-    )).splitlines()
-
-    answers = next(i for i, l in enumerate(shown) if l.strip().startswith("answers"))
-    citations = next(i for i, l in enumerate(shown) if "citations" in l)
-    held = next(i for i, l in enumerate(shown) if "co-occurrence" in l)
-
-    assert answers < citations < held, (
-        "the two inseparable figures stay adjacent, and the corpus "
-        "reading comes after them"
-    )
 
 
 # --- What a person sees while the run goes on ----------------------------
@@ -1362,7 +1061,6 @@ def _profile(**over):
             Subject("geo", 15, inside=30, touches={"anni": 148, "tracsis": 102}),
         ],
         related=[("tracsis/geschichte", 115), ("investments/roots", 99)],
-        noise=_noise(),
     )
     fields.update(over)
     return Profile(**fields)
@@ -1457,26 +1155,3 @@ def test_a_branch_with_no_notes_says_so():
     shown = render_summary(_profile(notes=0, subjects=[], related=[]))
 
     assert "this branch holds no notes" in shown
-
-
-def test_the_noise_line_comes_last_so_it_qualifies_the_counts_above():
-    """Degree is what the graph says, and on a corpus where the stopword
-    threshold finds nothing, degree counts a great deal of vocabulary
-    everybody shares. So the counts above are true of the graph and this
-    is the line that says whether the graph is a relation."""
-    lines = render_summary(_profile()).splitlines()
-
-    assert "no word is in half of the notes" in lines[-1], (
-        f"the qualifying reading is last, not among the counts: {lines[-1]}"
-    )
-
-
-def test_a_summary_without_a_noise_measurement_still_renders():
-    """`Profile.noise` is optional because it is a measurement passed in,
-    the same way `Report.ubiquity` is. A profile without one renders
-    without it rather than printing an absence it never measured."""
-    shown = render_summary(_profile(noise=None))
-
-    assert "131 notes in 3 subjects" in shown
-    assert "of the corpus writes" not in shown
-    assert "no word is in" not in shown

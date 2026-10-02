@@ -3,7 +3,9 @@ name = "acciughe"
 version = "0.1.0"
 description = "Question-answering across a corpus of notes, over a local agent."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "stopwordsiso>=0.7.1",
+]
 
 [project.scripts]
 acciughe = "acciughe.cli:main"

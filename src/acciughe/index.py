@@ -27,8 +27,12 @@ from acciughe.relations import LINK, cooccurrence_edges, link_edges, stopwords
 # stopword list was completed, since dropping "about" and the auxiliary
 # verbs removes co-occurrence edges that the old derivation derived.
 # Bumped to 4 when the fixed list was replaced by words counted over the
-# branch, which changes the terms of every note in a corpus of any size.
-CURRENT_DERIVATION = 4
+# branch. Bumped to 5 when the count was replaced by the lists of the
+# languages the branch is written in, which changes the terms of every
+# note in a corpus of any size — and in a corpus of no particular size
+# differently than before, which is what makes the bump necessary rather
+# than the count's own change.
+CURRENT_DERIVATION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -166,15 +170,16 @@ class Index:
             return False
         return self._matches_branch()
 
-    # --- the words this corpus shares ---------------------------------
+    # --- the words that say nothing ---------------------------------
 
     def stopwords(self) -> frozenset[str]:
-        """The words this branch writes in every note, and which say nothing.
+        """The words this branch's own languages say nothing with.
 
         Read from the notes rather than stored, so a caller holding an
         index never acts on a word list the index no longer agrees with.
         `refresh` records a fingerprint rather than the words themselves,
-        for the narrow job of noticing that the set moved.
+        for the narrow job of noticing that the set moved — which happens
+        when a note arrives in a language the branch was not written in.
         """
         return stopwords(dict(self.notes()))
 
