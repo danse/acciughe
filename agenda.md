@@ -58,28 +58,7 @@ it is decided rather than moving to a list of what was done.
   saying what they want a graph of theirs to look like — or the share,
   which says whether the choice ever reached the model.
 
-- **Whether a breadth of shared words should outrank one rare word.**
-  Left over from the same work and visible in the measurements: a note is
-  scored by the *sum* of its shared terms' weights, so a note matching
-  `did`, `the` and `why` (8.40) beats a note that actually contains
-  `press` (6.17). Taking the strongest single term instead puts `press`
-  first, and reads better on the case where the question names something
-  that is there. It throws away breadth, so a question naming three parts
-  of one subject would seed on whichever note mentioned one in passing.
 
-  The sum is in place, for the seeds and for the evidence alike, and the
-  trade is now counted rather than argued. **Every turn records whether
-  the two rankings named the same note first** — the sum, and
-  `Ask.strongest` — and `evaluate` says how many turns they differed on.
-  They can only differ where a seed wins on the sum while the seed it beat
-  holds a stronger single term, so each turn that differs is a question
-  the sum answered one way and the alternative would answer the other.
-
-  Frequency alone cannot settle this, because `why` is rare in a corpus
-  of diaries and programming notes and rare is all frequency knows. A
-  count of disagreeing turns settles it in the other direction: zero is
-  the sum having cost nothing on that branch, whatever the argument said
-  in the abstract.
 
 - **Whether a linking convention should be a rule.** Counting the words
   that say nothing over the branch closed the multilingual fault, and left
